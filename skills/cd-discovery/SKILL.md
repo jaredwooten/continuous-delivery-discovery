@@ -1,0 +1,189 @@
+---
+name: cd-discovery
+description: "Automated CI/CD pipeline discovery — scans codebase for deployment artifacts, interviews user about gaps, produces structured input for the continuous-delivery-strategist agent"
+argument-hint: "[--skip-interview] [--assess] [--update [<context-or-path>]] [--skip-github] [--octopus-url <url>] [--octopus-api-key <key>] [--octopus-space <id-or-name>] [--octopus-project <name>]"
+allowed-tools:
+  - Read
+  - Edit
+  - Bash
+  - Agent
+  - AskUserQuestion
+---
+
+Thin launcher that spawns the `continuous-delivery-strategist` agent to perform expert-driven CI/CD discovery.
+
+## Parse Arguments
+
+Extract flags from `$ARGUMENTS`:
+- `--skip-interview` — skip the interactive gap interview; tag gaps with `[NEEDS CLARIFICATION]`
+- `--assess` — after writing CD-DISCOVERY.md, continue into a full assessment with improvement roadmap
+- `--update [<context-or-path>]` — apply additional context to an existing `CD-DISCOVERY.md` instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
+- `--skip-github` — skip the GitHub sub-playbook even if the repo has a github.com remote and `gh` is authenticated. Falls back to env var `GH_DISCOVERY_SKIP=1` if set.
+- `--octopus-url <url>` — Octopus Deploy server URL (e.g. `https://octopus.internal`). Falls back to env var `OCTOPUS_URL` if omitted.
+- `--octopus-api-key <key>` — Octopus API key (`API-...`). Falls back to env var `OCTOPUS_API_KEY` if omitted. **Never echo to terminal or report.**
+- `--octopus-space <id-or-name>` — Octopus space ID (e.g. `Spaces-1`) or display name. Falls back to env var `OCTOPUS_SPACE`, then to the default space.
+- `--octopus-project <name>` — restrict Octopus discovery to a specific project name or slug. Falls back to env var `OCTOPUS_PROJECT`. If omitted, the agent infers candidates from the repo name and confirms via `AskUserQuestion`.
+
+### Resolve Octopus mode
+
+After parsing, resolve which Octopus discovery tier to run:
+- **Tier 1 (API)** — if both URL and API key are present (flag or env var). The agent will use them via curl with `X-Octopus-ApiKey` headers.
+- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or asks the user for a CaC repo path.
+- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the agent asks the user a structured set of questions via `AskUserQuestion`.
+- **Skip** — if the user provides `--octopus-url=none` or answers "we don't use Octopus" when asked, skip the sub-playbook entirely.
+
+If no Octopus inputs are provided and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
+
+### Resolve GitHub mode
+
+After parsing, resolve whether to run the GitHub sub-playbook:
+1. Detect a GitHub remote: `git remote -v | grep -qE 'github\.com[:/]'`. If no GitHub remote, skip — no section in the output.
+2. If `--skip-github` (or `GH_DISCOVERY_SKIP=1`) is set, skip — tag the section `[SKIPPED by user]`.
+3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → either prompt the user to run `gh auth login` or fall back to **Tier 2** (questionnaire) per the sub-playbook.
+
+GitHub discovery requires no flags by default — if `gh` is authenticated and the repo is on GitHub, the sub-playbook runs automatically.
+
+## Check for Existing Report
+
+Detect whether `CD-DISCOVERY.md` exists in the project root and route accordingly:
+
+- **If `--update` was passed and the file does NOT exist:** abort with "No CD-DISCOVERY.md found — run `/cd-discovery` first to generate the baseline, then re-run with `--update`."
+- **If `--update` was passed and the file exists:** skip the prompt below and proceed directly to the **Spawn the Update Agent** path with whatever inline context / file path the user supplied (or interactive capture if neither was supplied).
+- **If `--update` was NOT passed and the file exists:** show its modification date and ask via `AskUserQuestion` how to proceed. Offer three options:
+  1. **Overwrite** — drop the existing file and run a fresh discovery (the current behavior; continues to **Spawn the Agent** below).
+  2. **Update** — apply additional context to the existing report via `UPDATE-PLAYBOOK.md` (continues to **Spawn the Update Agent** below).
+  3. **Cancel** — exit without changes.
+- **If the file does not exist and `--update` was NOT passed:** proceed directly to **Spawn the Agent** for a fresh discovery.
+
+## Spawn the Agent
+
+Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuous-delivery-strategist"` and the following prompt structure:
+
+```
+<objective>
+Execute CI/CD discovery for this repository. Read the discovery playbook, scan the codebase using its methodology, analyze findings against the L0-L4 capability model, and write CD-DISCOVERY.md to the project root.
+
+{If --skip-interview: "Skip the interactive interview. Tag all gaps with [NEEDS CLARIFICATION] instead."}
+{If NOT --skip-interview: "After scanning, present a summary and interview the user about gaps using AskUserQuestion."}
+{If --assess: "After writing CD-DISCOVERY.md, continue directly into a full assessment with a phased improvement roadmap."}
+</objective>
+
+<required_reading>
+Read these files before starting:
+1. ~/.claude/skills/cd-discovery/PLAYBOOK.md — Discovery methodology to execute
+2. ~/.claude/skills/cd-discovery/TEMPLATE.md — Output template for CD-DISCOVERY.md
+3. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only required if Octopus is in scope; see below)
+4. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only required if the repo is on GitHub; see below)
+</required_reading>
+
+<octopus_inputs>
+{If Tier 1 resolved:}
+  OCTOPUS_URL: {url}
+  OCTOPUS_SPACE: {space-or-empty}
+  OCTOPUS_PROJECT: {project-or-empty}
+  OCTOPUS_API_KEY: provided via env var to subsequent bash calls — do NOT echo, do NOT include in report or memory.
+  Run Tier 1 of OCTOPUS-DISCOVERY.md.
+{Elif Tier 2 candidate:}
+  No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md.
+{Elif Tier 3 fallback:}
+  No Octopus credentials or CaC found. Ask the user once whether this repo is deployed via Octopus. If yes, run the Tier 3 questionnaire from OCTOPUS-DISCOVERY.md. If no, skip the Octopus sub-playbook.
+{Elif user opted out:}
+  User has indicated this repo does not use Octopus. Do not run the Octopus sub-playbook.
+</octopus_inputs>
+
+<github_inputs>
+{If repo has a github.com remote AND gh is authenticated AND NOT --skip-github:}
+  Run Tier 1 of GH-DISCOVERY.md against the repo. Use the existing gh CLI auth; do not echo auth tokens to the report or memory. Print the authenticated gh user and viewerPermission to the conversation as part of the preflight so the user can confirm identity.
+{Elif repo has a github.com remote AND --skip-github:}
+  Skip the GitHub sub-playbook. Tag the GitHub Repository Posture section as `[SKIPPED by user]` or omit it entirely.
+{Elif repo has a github.com remote AND gh is unauthenticated:}
+  Note that gh is not authenticated. Either prompt the user to run `gh auth login` (then resume Tier 1) or fall back to Tier 2 (questionnaire) from GH-DISCOVERY.md.
+{Else (no github.com remote):}
+  Skip the GitHub sub-playbook silently — not applicable.
+</github_inputs>
+
+<framing_rule>
+When the GitHub sub-playbook surfaces missing branch protection or missing required status checks on a default branch, do NOT classify that as a high-severity finding in isolation. First survey Observability, Testing, and Deployment Automation. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Document the reasoning explicitly in the cross-stitch lines so the reader can audit the severity call.
+</framing_rule>
+
+<output>
+- Write CD-DISCOVERY.md to the project root, including the Deployment Orchestrator section if Octopus discovery ran AND the GitHub Repository Posture section if the GitHub sub-playbook ran
+- Save project findings to your agent memory — but never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content
+{If --assess: "- Continue with full assessment and phased improvement roadmap"}
+</output>
+```
+
+When invoking the agent's bash steps for Tier 1, pass the API key via the environment, e.g. `env OCTOPUS_API_KEY=$KEY curl -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" ...`. Never pass it as a CLI argument that would land in shell history or process listings.
+
+## Spawn the Update Agent
+
+Used when the user chose **Update** (either by `--update` flag or by the existing-report prompt). Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuous-delivery-strategist"` and the following prompt structure:
+
+```
+<objective>
+Update the existing CD-DISCOVERY.md in the project root by folding in additional context the user has supplied. Verify every claim that can be verified against the codebase or live APIs (gh CLI, Octopus REST API); tag the rest [USER-REPORTED] and lower confidence accordingly. Edit the file in place — preserve the audit trail by reframing prior findings rather than deleting them. Append a revision-history entry at the bottom and prepend a Last revised line at the top.
+</objective>
+
+<required_reading>
+Read these files before starting:
+1. The `CD-DISCOVERY.md` at the project root — current report
+2. ~/.claude/skills/cd-discovery/UPDATE-PLAYBOOK.md — update methodology (Phases 1–6 and Quality Gate)
+
+Re-read these only if a user claim needs the corresponding slice re-verified:
+3. ~/.claude/skills/cd-discovery/PLAYBOOK.md — for CODEBASE-verifiable claims
+4. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — for GITHUB-API-verifiable claims
+5. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — for OCTOPUS-API-verifiable claims
+</required_reading>
+
+<user_context>
+{If --update was passed with an inline string:}
+  INLINE: "{the literal string the user passed}"
+{Elif --update was passed with a file path:}
+  FILE_PATH: {the path — read its contents before Phase 2}
+{Else (interactive capture):}
+  No context supplied yet. Run Phase 2 interactive capture from UPDATE-PLAYBOOK.md.
+</user_context>
+
+<verification_inputs>
+{Reuse the Octopus and GitHub resolution from the Spawn the Agent block above.}
+{If Octopus Tier 1 is resolved:} OCTOPUS_URL / OCTOPUS_SPACE / OCTOPUS_PROJECT are available; OCTOPUS_API_KEY is in the environment — never echo. Octopus-API claims can be re-verified slice-by-slice.
+{If Octopus Tier 1 NOT resolved:} Skip Octopus re-verification — tag Octopus-API claims [USER-REPORTED] and note in the revision header that the Octopus side was not re-scanned this pass.
+{If gh is authenticated:} GitHub-API claims can be re-verified slice-by-slice. Print the authenticated gh user and viewerPermission to the conversation before any GitHub call.
+{If gh is unauthenticated:} Skip GitHub re-verification — tag GitHub-API claims [USER-REPORTED] and note in the revision header.
+</verification_inputs>
+
+<execution>
+Execute UPDATE-PLAYBOOK.md Phases 1 through 6 in order:
+- Phase 1: Ingest current report into a working memory index
+- Phase 2: Capture user context (skip interactive step if inline string / file path supplied)
+- Phase 3: Decompose into atomic claims; show the list to the user for confirmation before proceeding
+- Phase 4: Targeted verification — re-run only the scan slices the user's claims touch; surface any CONTRADICTED claim to the user before editing
+- Phase 5: Edit CD-DISCOVERY.md in place using the Edit tool (granular edits only — no Write of the whole file)
+- Phase 6: Prepend a new "### <today> — context refresh" entry to the bottom "Changes from previous report" section
+
+Apply the Quality Gate at the end. Do not declare done if any item is unchecked.
+</execution>
+
+<output>
+- Edited CD-DISCOVERY.md in the project root with new revision header, updated capability matrix / findings / anti-patterns / roadmap, and a new bottom-of-file revision entry
+- Save updated project findings to your agent memory — never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content
+- Report which claims verified, which were contradicted (with user resolution), and which remain [USER-REPORTED] and why
+</output>
+```
+
+When invoking the agent's bash steps for Tier 1 Octopus re-verification, pass the API key via the environment as documented above for the fresh-discovery path.
+
+## Report Completion
+
+After the agent returns:
+
+**Fresh-discovery path:**
+- If `--assess` was NOT set: display "CD-DISCOVERY.md written. Run `/cd-discovery --assess` for a full assessment with improvement roadmap."
+- If `--assess` was set: the agent will have produced both the discovery report and the assessment. Display the summary.
+- If Octopus discovery ran, mention which tier was used (API / CaC / Questionnaire) so the user understands the confidence level.
+- If GitHub discovery ran, mention which tier was used (Tier 1 / Tier 2) and which `gh` identity was authenticated.
+
+**Update path:**
+- Display a 3-5 line summary: which dimensions had level/confidence changes, how many claims verified vs. user-reported, whether GitHub / Octopus were re-scanned this pass, and the location of the new bottom-of-file revision entry.
+- If any claims were `CONTRADICTED` and the user overrode the codebase/API, surface that explicitly so the user remembers the override exists in the report.
+- Remind the user to `git diff CD-DISCOVERY.md` before committing if they want to review the edits.

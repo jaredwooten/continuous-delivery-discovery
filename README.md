@@ -30,7 +30,13 @@ Then in Claude Code, say:
 
 The agent walks the steps, asks before overwriting anything, and verifies the install at the end. No shell script to debug — if anything goes sideways, you can ask the agent what it sees and it will adapt.
 
+**Two install methods.** The agent will ask which you want:
+- **Copy** (recommended for most) — files copied into `~/.claude/`; the cloned repo can be deleted afterward. Future updates require re-running the install playbook.
+- **Symlink** (for contributors / dogfooders) — `~/.claude/` entries link directly to the cloned repo. Edits + `git pull` flow live into your Claude Code sessions without re-installing. Don't pick this if you might delete or move the cloned repo — broken symlinks fail silently.
+
 ## Update
+
+**Copy-method installs:**
 
 ```bash
 cd continuous-delivery-discovery
@@ -43,6 +49,15 @@ Then:
 > Read INSTALL.md and update my install.
 
 The agent diffs the repo against your installed copy, backs up the existing files to `~/.claude/.backup-cd-discovery-<timestamp>/`, and copies the new versions into place. Your agent-memory at `~/.claude/agent-memory/continuous-delivery-strategist/` is preserved.
+
+**Symlink-method installs:**
+
+```bash
+cd continuous-delivery-discovery
+git pull
+```
+
+That's it — the symlinks already point at the files `git pull` just updated. New Claude Code sessions pick up the changes on next skill/agent load.
 
 ## Usage
 

@@ -92,10 +92,39 @@ Do not proceed to Phase 4 without confirmation. Decomposition mistakes propagate
 For each claim, attempt verification using the matching slice:
 
 ### CODEBASE claims
-Re-run the relevant scan slice from `~/.claude/skills/cd-discovery/PLAYBOOK.md` (Phase 1 sections 1.1–1.10). Examples:
+Re-run the relevant scan slice from `~/.claude/skills/cd-discovery/PLAYBOOK.md` (Phase 1 sections 1.1–1.13). Examples:
 - "Groovy pack is abandoned" → `grep -rn "IntegrationTests" .github/workflows/ api/ webapp/`
 - "Healthcheck still no-op" → `grep -rn "HealthCheckController" api/`
 - "build_properties.json version bumped" → `git log --oneline -- .github/workflows/build_properties.json`
+- "We use `npm ci` not `npm install`" → `grep -nE '\bnpm (ci|install)\b' .github/workflows/webapp-build.yaml` (verify exact line in the file; do not trust prior report claims)
+
+**Worked example — artifact-centricity claim.**
+
+> User context: *"Our images are built once in CI and the same tag is promoted unchanged through dev → stage → prod."*
+>
+> Decomposition:
+>
+> ```
+> [1] Claim: Single build per commit (no per-env rebuild)
+>     Affects: Deployment Automation, Build & CI
+>     Verifiability: CODEBASE
+>     Verification: grep -cE 'docker build' in the relevant workflow; confirm exactly one build step, not one per env
+>     Source phrase: "built once in CI"
+>
+> [2] Claim: Same immutable tag travels through promotion
+>     Affects: Deployment Automation, Release Process
+>     Verifiability: CODEBASE
+>     Verification: grep deploy scripts for tag construction; confirm the tag is **read from** a file/output produced by the build (e.g., `cat *tag*.txt`, `${{ needs.build.outputs.tag }}`), not constructed in the deploy step per env
+>     Source phrase: "same tag is promoted unchanged"
+>
+> [3] Claim: Tag never mutated post-push
+>     Affects: Deployment Automation, Security
+>     Verifiability: PARTIAL (CODEBASE + EXTERNAL)
+>     Verification: grep workflows for `docker tag` after the prod push (CODEBASE); check registry immutability policy (EXTERNAL — ask user)
+>     Source phrase: "unchanged"
+> ```
+>
+> Implied action when verified: raise confidence on Deployment Automation; **add a Strengths to Protect entry** naming the specific file:line that implements the build → deploy tag handoff (the load-bearing line) and listing what would silently regress it (parameterizing the tag per env, retag-at-deploy, separate per-env build jobs). Do **not** treat this as a routine "found" — it's the single most defensible asset in the pipeline.
 
 ### GITHUB-API claims
 Re-run the relevant slice from `~/.claude/skills/cd-discovery/GH-DISCOVERY.md`. Only the specific endpoint needed — not the full Tier 1 sweep. Examples:

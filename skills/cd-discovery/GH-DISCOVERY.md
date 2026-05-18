@@ -192,6 +192,43 @@ gh api repos/{O}/{R}/contents/.github/CODEOWNERS 2>/dev/null \
 
 If a CODEOWNERS file exists but `require_code_owner_reviews: false` on the default branch, that's a partial-adoption finding worth flagging.
 
+### 1.13 Artifact provenance and supply-chain posture
+
+Grep the workflows for the supply-chain and artifact-identity signals that don't show up in `repos/{O}/{R}/security_and_analysis`. These feed §1.13 of the main playbook and the Strengths to Protect / Anti-Patterns sections of the report.
+
+**Provenance, signing, SBOM:**
+
+```bash
+grep -rEn 'cosign|sigstore|actions/attest-build-provenance|anchore/sbom-action|slsa-framework|syft|grype' .github/workflows/
+```
+
+**Dependency cache coverage on the main build path:**
+
+```bash
+grep -rEn 'actions/cache|cache:[[:space:]]*(npm|yarn|pnpm|pip|maven|gradle)|cache-from|cache-to' .github/workflows/
+```
+
+Absence of any cache on workflows that build the production artifact is a feedback-loop finding worth naming. Slow builds → larger PR batches → harder rollbacks.
+
+**Install command hygiene:**
+
+```bash
+grep -rEn '\bnpm install\b|\byarn install\b|\bpip install\b' .github/workflows/
+```
+
+Cross-check each match against the surrounding context: `npm ci`, `yarn install --frozen-lockfile`, and `pip install --require-hashes` are **not** findings. Non-deterministic installs (raw `npm install`, `yarn install`, `pip install`) on the production build path corrupt artifact identity and warrant a finding. Verify the actual command in the file — do not trust prior reports.
+
+**Build-once-promote signals:**
+
+```bash
+# Count distinct build invocations per workflow (heuristic; verify by reading)
+grep -rcEn '^\s*-\s*(name:.*[Bb]uild|run:.*docker build|run:.*dotnet publish|run:.*npm run build)' .github/workflows/
+```
+
+A workflow with multiple build invocations against different envs is a per-environment-rebuild signal; pair with the deploy-script grep from main playbook §1.13.
+
+Feed all output into the §1.13 PLAYBOOK output and into the Security + Deployment Automation dimensions.
+
 ---
 
 ## Tier 2: Structured Questionnaire
@@ -239,6 +276,12 @@ If most answers are "yes", missing branch protection is **information**, not a f
 If most answers are "no", missing branch protection becomes a high-severity gap.
 
 Document the reasoning in the Cross-Stitch section so the reader can audit the severity call.
+
+### Framing Rule — artifact-centricity (parallel)
+
+Parallel to the branch-protection rule: build-once-promote-the-same-artifact is the load-bearing CD principle. When §1.13 of the main playbook verifies it is in place (single image build per commit, immutable tag, deploy step reads tag from the build rather than constructing it), name it as a **Strength to Protect** in the Cross-stitch section, with explicit warnings about what would regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When it is absent, treat it as a HIGH-severity Deployment Automation finding regardless of how strong the rest of the pipeline looks — re-testing per environment defeats the confidence model that CD depends on.
+
+Build-once-with-config-swap-at-deploy (identical artifact bytes; runtime config swapped by the deploy step) is acceptable but must be framed as an asterisk so future readers don't confuse it with a full violation.
 
 ---
 
@@ -312,4 +355,6 @@ Before declaring the GitHub sub-playbook complete:
 - ✅ Workflow execution reality captured (success rates + dormant/stale workflows)
 - ✅ PR cadence + base-branch distribution captured
 - ✅ Framing Rule applied — branch-protection findings interpreted with explicit reference to Observability/Testing/Deployment state
+- ✅ Artifact-provenance greps executed (cosign / SBOM / attestation, dependency cache coverage, install-command hygiene, build-once signals)
+- ✅ Artifact-centricity framing rule applied — when build-once-promote is in place it is named as a Strength to Protect with file:line evidence; when violated it is surfaced as a HIGH-severity Deployment Automation finding
 - ❌ **No** auth tokens, alert bodies, or PR content stored in `CD-DISCOVERY.md` or agent memory

@@ -219,6 +219,23 @@ git remote -v | grep -E 'github\.com[:/]'
 
 If GitHub is in scope but `gh auth status` fails, fall back to Tier 2 of `GH-DISCOVERY.md` (questionnaire) or skip if the user opted out.
 
+### 1.13 Artifact Identity & Promotion
+
+The single most load-bearing CD principle is **build the artifact once; promote the same bytes through environments**. Detect whether the pipeline implements it, partially implements it, or violates it.
+
+Look for the build step(s) that produce deployable artifacts (container images, language packages, deployment zips). For each:
+
+- **Build occurrence count.** Does CI build the artifact once per commit, or once per target environment? Grep for repeated `docker build`, `dotnet publish`, `npm run build` in the same workflow across multiple jobs.
+- **Tag/version identity.** What identifier travels with the artifact? Grep for `docker tag`, `docker push --all-tags`, `:latest`, `:${{ github.sha }}`, `:${{ github.run_number }}`, version files like `build_properties.json`, `package.json` version fields, `<Version>` in `.csproj`.
+- **Immutability.** Is the production-targeted tag immutable (versioned, SHA-pinned), or mutable (`:latest`, environment-named tags like `:prod`)? `docker push --all-tags` plus a `:latest` retag is a race risk worth flagging.
+- **Promotion mechanism.** Does the deploy step read the tag from the build (via a file packaged with the deploy script, an artifact upload, or a workflow output) — or does it construct the tag itself per environment? Grep deploy scripts for `cat *tag*.txt`, environment-substituted tags, or per-env image references. This is the load-bearing line of artifact-centricity; cite the exact file:line in findings.
+- **Build-time vs. runtime configuration injection.** If the artifact is identical across environments but config is swapped at deploy time (e.g., Ansible replacing `environment.values.{env}.js` in an otherwise-identical webapp bundle), record this as a build-once-with-asterisk pattern — not a violation, but worth naming explicitly so it isn't confused with a full violation.
+- **Provenance & signing.** Grep workflows for `cosign`, `sigstore`, `anchore/sbom-action`, `actions/attest-build-provenance`, `slsa-framework`, `syft`, `grype`. Note absence; severity depends on the broader supply-chain posture.
+- **Dependency caching.** Grep for `actions/cache`, `setup-node` with `cache:`, `setup-dotnet` with cache hints, `setup-python` with `cache:`, Docker layer caching (`cache-from`, `cache-to`, `gha`). Cache absence on the main build path inflates feedback time — name it.
+- **Install command hygiene.** Grep specifically for `npm install` vs `npm ci`, `yarn install` (without `--frozen-lockfile`) vs `yarn install --frozen-lockfile`, `pip install` (without `--require-hashes`). Non-deterministic installs corrupt artifact identity — the artifact built today is not the artifact built tomorrow.
+
+**Framing rule** (must propagate into both the report and the agent's reasoning): *build-once-promote-the-same-artifact is the load-bearing pattern under L3+ Deployment Automation.* When it is in place, name it as a **Strength to Protect** with file:line evidence and call out what would silently regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When it is absent or partially implemented (per-env rebuilds, mutable tags reaching prod, retag-at-deploy), surface it as a HIGH-severity Deployment Automation finding regardless of how green the rest of the pipeline looks. Build-once-with-config-swap-at-deploy is acceptable but must be framed as an asterisk so future readers don't think it's a full violation.
+
 ---
 
 ## Phase 2: Analysis & Gap Detection
@@ -299,6 +316,13 @@ Flag these anti-patterns with file:line references:
 | Missing health checks | Services deployed without readiness/liveness probes |
 | No rollback mechanism | Deploy scripts with no rollback logic or previous-version reference |
 | Test-deploy gap | Tests run against different env/config than production deploy |
+| Mutable image tag reaches prod | Production deploy references `:latest` or env-named tags; `docker push --all-tags` followed by no immutable-tag registry policy |
+| Per-environment rebuild | Same artifact built more than once per commit (separate dev/stage/prod build jobs producing fresh tags) |
+| Retag at deploy time | Deploy script constructs an env-specific tag and retags the CI-built image rather than promoting the original tag unchanged |
+| Deploy-code coupled to runtime artifact | Deploy scripts/playbooks bundled inside the runtime artifact, forcing a full rebuild to fix deploy tooling |
+| Non-deterministic install in CI | `npm install` instead of `npm ci`; `yarn install` without `--frozen-lockfile`; `pip install` without hash pinning |
+| No artifact provenance | No SBOM emission, no image signing (cosign/Notation), no SLSA attestation in the build that ships to prod |
+| No dependency caching on main build | `setup-node`/`setup-dotnet`/`setup-python` without `cache:`; no Docker layer cache on builds taking >2 min |
 
 ---
 
@@ -369,7 +393,7 @@ Read the template at `~/.claude/skills/cd-discovery/TEMPLATE.md` and generate `C
 ## Quality Gate
 
 Before considering discovery complete, verify:
-- All 12 scan categories executed against the codebase (1.1–1.12)
+- All 13 scan categories executed against the codebase (1.1–1.13)
 - If an external deployment orchestrator was detected, the relevant sub-playbook ran (e.g. `OCTOPUS-DISCOVERY.md`) OR the gap is explicitly tagged
 - If the repo has a GitHub remote, the GitHub sub-playbook ran (`GH-DISCOVERY.md`) OR was explicitly skipped via `--skip-github`
 - Findings mapped to 7 dimensions with L0-L4 level estimates
@@ -378,7 +402,9 @@ Before considering discovery complete, verify:
 - CD-DISCOVERY.md written to project root with populated capability matrix
 - Deployment Orchestrator section populated when an orchestrator is in scope
 - GitHub Repository Posture section populated when GitHub is in scope (or explicitly skipped)
-- **Framing rule applied**: branch-protection findings are interpreted in the context of overall feedback-loop quality, not treated as findings in isolation
+- **Branch-protection framing rule applied**: findings interpreted in the context of overall feedback-loop quality, not treated as findings in isolation
+- **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding regardless of how green the rest of the pipeline looks
+- **Strengths to Protect section populated**: at least one entry per pipeline that has *anything* working — an empty section means the report is incomplete
 - Every finding backed by evidence (file paths) or tagged as [MISSING]
 - No API keys, auth tokens, sensitive variable values, or full alert/PR payloads present in the report or agent memory
 

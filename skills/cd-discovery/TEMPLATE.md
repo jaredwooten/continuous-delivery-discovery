@@ -28,6 +28,14 @@
 | L3 | Continuous deployment — every green commit reaches prod via progressive rollout |
 | L4 | Optimized — deployment is a non-event; experimentation and rapid rollback are routine |
 
+## Strengths to Protect
+
+> The load-bearing patterns the team is getting right. Naming these explicitly defends against well-intentioned "improvements" that silently regress them. **If this section is empty, the report is incomplete** — every pipeline has something working. Common entries: build-once-promote (artifact-centricity), immutable image tags, single-source artifact identity, deploy-step reads tag from build (no per-env retag), comprehensive test gating, automated rollback path.
+
+| Strength | Evidence | What would silently regress it |
+|---|---|---|
+| {pattern name, e.g. "Build-once-promote via docker-tag.txt handoff"} | `{file:line}` | {specific change that regresses it — e.g., "parameterizing image tag per environment in the deploy step"} |
+
 ## Detailed Findings
 
 {repeat this block per dimension}
@@ -40,6 +48,9 @@
 **Artifacts Found:**
 - `{path/to/file}` — {what it does} [{FOUND}]
 - `{path/to/file:line}` — {specific finding} [{PARTIAL}]
+
+**Strengths to Protect:**
+- `{path/to/file:line}` — {what works, in one line} — {what would silently regress it}
 
 **Gaps Identified:**
 - {gap description} [{MISSING}]

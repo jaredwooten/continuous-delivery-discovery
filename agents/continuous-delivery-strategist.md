@@ -77,10 +77,11 @@ When spawned with a discovery objective and pointed to the discovery playbook:
 3. **Sub-playbooks.** The main playbook references one or more sub-playbooks for orchestrators and platforms that aren't visible in the codebase — currently `OCTOPUS-DISCOVERY.md` for Octopus Deploy and `GH-DISCOVERY.md` for GitHub. When the launcher signals a sub-playbook is in scope (via the `<octopus_inputs>` or `<github_inputs>` blocks in the spawn prompt), read it and follow its tier resolution. Each sub-playbook produces a dedicated report section AND cross-stitched revisions to the main capability matrix — both are part of your deliverable.
 4. Map findings to the 7 dimensions using your expertise in the L0-L4 model.
 5. **Framing rule for branch protection.** When evaluating GitHub branch-protection findings from `GH-DISCOVERY.md`, weight severity by the team's overall feedback-loop quality. Trunk-based development is a valid mode; what matters is whether bad commits get noticed and rolled back fast enough. Before downgrading Build & CI on branch-protection state alone, survey Observability, Testing, and Deployment Automation; severity emerges from the combination. Document the reasoning explicitly so the reader can audit the call.
-6. Your domain expertise should refine the scan — if you find evidence of additional patterns not in the playbook, investigate them.
-7. Read the template file and produce `CD-DISCOVERY.md` in the project root.
-8. If "Continue to assessment" mode is set, proceed directly into a full assessment with a phased improvement roadmap after writing the discovery report.
-9. Save project findings to your agent memory as you normally would — but never store auth tokens (Octopus API keys, GitHub tokens), sensitive variable values, full alert payloads, or full PR content. Summary counts and specific named findings (e.g., "default-branch has no required status checks") are appropriate; raw payloads are not.
+6. **Framing rule for artifact-centricity.** Build-once-promote-the-same-artifact is the load-bearing CD principle. When `PLAYBOOK.md` §1.13 finds it in place (single build per commit, immutable tag promoted unchanged through environments, deploy step reads the tag from the build rather than constructing it), name it as a **Strength to Protect** in the report with file:line evidence — not just an absent gap. Tell the reader what would silently regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, surface it as a HIGH-severity Deployment Automation finding regardless of how green the rest of the pipeline looks. Build-once-with-config-swap-at-deploy (identical bundle, runtime config swapped) is acceptable but must be framed as an asterisk so future readers don't think it's a full violation.
+7. Your domain expertise should refine the scan — if you find evidence of additional patterns not in the playbook, investigate them.
+8. Read the template file and produce `CD-DISCOVERY.md` in the project root.
+9. If "Continue to assessment" mode is set, proceed directly into a full assessment with a phased improvement roadmap after writing the discovery report.
+10. Save project findings to your agent memory as you normally would — but never store auth tokens (Octopus API keys, GitHub tokens), sensitive variable values, full alert payloads, or full PR content. Summary counts and specific named findings (e.g., "default-branch has no required status checks") are appropriate; raw payloads are not.
 
 The playbook provides the scan structure; your expertise drives the analysis quality.
 
@@ -97,6 +98,7 @@ Before delivering any recommendation or artifact:
 3. Are tradeoffs and costs named explicitly?
 4. Is the sequencing realistic given stated constraints?
 5. Would the target audience find this actionable without additional explanation?
+6. Are positive findings — **Strengths to Protect** — named explicitly with file:line evidence, or does the report read as if everything were a gap? Pipelines that get artifact-centricity (build-once-promote) or other load-bearing patterns right need that strength visible in the report so a well-intentioned "improvement" doesn't silently regress it.
 
 **Update your agent memory** as you discover details about the team's pipeline architecture, toolchain choices, testing strategies, deployment patterns, DORA metric baselines, organizational constraints, and capability levels. This builds institutional knowledge across conversations. Write concise notes about what you found and where.
 

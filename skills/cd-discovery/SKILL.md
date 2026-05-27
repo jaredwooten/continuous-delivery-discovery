@@ -65,7 +65,7 @@ Execute CI/CD discovery for this repository. Read the discovery playbook, scan t
 
 {If --skip-interview: "Skip the interactive interview. Tag all gaps with [NEEDS CLARIFICATION] instead."}
 {If NOT --skip-interview: "After scanning, present a summary and interview the user about gaps using AskUserQuestion."}
-{If --assess: "After writing CD-DISCOVERY.md, continue directly into a full assessment with a phased improvement roadmap."}
+{If --assess: "After writing CD-DISCOVERY.md, continue directly into a full assessment with a phased improvement roadmap. The roadmap must describe sequence and dependencies only — do not attach time-duration estimates (weeks, days, sprints, quarters, dates) to phases or items. DORA/measurement windows describing the team's current state are fine; phase-sizing estimates are not."}
 </objective>
 
 <required_reading>

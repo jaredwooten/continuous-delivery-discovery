@@ -201,6 +201,8 @@ Re-order so the highest-leverage item is still #1. Add new items inline. Remove 
 
 When editing roadmap phases, prefer in-place updates of phase items to wholesale phase rewrites. The phase titles ("Phase 1 — Deploys can no longer fail silently...") should remain stable unless the user's context invalidates the phase's premise.
 
+**No time-duration estimates on roadmap phases or items.** When applying updates, do not introduce weeks, days, sprints, quarter targets, or dates onto roadmap phases — even if the user's context phrases improvements in time-bound language, translate to sequence/dependency framing. If the user explicitly asks for a date or duration in the roadmap, surface it as out of scope for this report and let them place it in their own planning tool. (DORA windows and other observed-state durations elsewhere in the report are unaffected.)
+
 ### 5.6 Cross-stitch consistency
 After all per-dimension edits, scan the cross-stitch entries in the Deployment Orchestrator and GitHub Repository Posture sections (where they exist). If any cross-stitch contradicts a Phase 5.2 capability-matrix update, edit the cross-stitch to match — and note the change in the bottom-of-file revision entry.
 

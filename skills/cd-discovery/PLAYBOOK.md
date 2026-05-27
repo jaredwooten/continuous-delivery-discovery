@@ -1,6 +1,6 @@
 # CI/CD Discovery Playbook
 
-Execute this playbook to scan a repository for CI/CD and deployment artifacts, analyze findings against the L0-L4 capability model, and produce `CD-DISCOVERY.md`.
+Execute this playbook to scan a repository for CI/CD and deployment artifacts, analyze findings against the L0-L4 capability model, and produce the `cd-discovery/` directory of findings.
 
 ---
 
@@ -379,7 +379,34 @@ After the interview, revise level estimates and confidence scores based on user 
 
 ## Phase 4: Write Output
 
-Read the template at `~/.claude/skills/cd-discovery/TEMPLATE.md` and generate `CD-DISCOVERY.md` in the project root.
+### Output: cd-discovery/ directory
+
+Write three (or two) files under a `cd-discovery/` directory at the project root, following these templates:
+
+| File | Template | When written |
+|---|---|---|
+| `cd-discovery/summary.md` | `~/.claude/skills/cd-discovery/TEMPLATE-summary.md` | Always |
+| `cd-discovery/findings.md` | `~/.claude/skills/cd-discovery/TEMPLATE-findings.md` | Always |
+| `cd-discovery/suggestions.md` | `~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md` | Only when `--suggest` is in scope |
+
+Each file is standalone-readable with a short date + repo header and its own bottom-of-file revision log. Cross-link `summary.md ↔ findings.md ↔ suggestions.md` with relative links per the templates.
+
+### Sub-playbook integration (GH, Octopus)
+
+When `GH-DISCOVERY.md` or `OCTOPUS-DISCOVERY.md` run, they emit a **weave map** — a structured list of evidence items tagged with the target dimension(s) in `findings.md`. Do **not** preserve a separate "GitHub Repository Posture" or "Deployment Orchestrator" section in the output. Instead:
+
+1. Read the weave map output from the sub-playbook.
+2. For each weave-map line, place the evidence in the matching dimension section of `findings.md` under "Artifacts Found" (or "Gaps Identified" if it's a missing-feature finding).
+3. Preserve the evidence-source tag (`[evidence: gh CLI Tier 1, scanned 2026-05-26]`) inline with the item so readers can audit confidence.
+4. Items tagged `[strength-to-protect]` go to `summary.md` under Strengths to Protect rather than into a dimension's gap list. Reference the source file and reason.
+
+### Framing rule for branch protection (applies at dimension level)
+
+When the GH weave map surfaces missing branch protection or missing required status checks on a default branch, do **not** classify it HIGH-severity in isolation. The finding sits in `findings.md` under the relevant dimension; weight severity by the team's overall feedback-loop quality (Observability, Testing, Deployment Automation). Document the reasoning inline with the evidence so the reader can audit the call.
+
+### Framing rule for artifact-centricity
+
+Build-once-promote-the-same-artifact is the load-bearing CD principle. When the Octopus weave map (or `PLAYBOOK.md` §1.13 if you find it directly) confirms it, the finding belongs in `summary.md` under Strengths to Protect with file:line / step-reference evidence — not buried as an absent gap in `findings.md`. Tell the reader what would silently regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, surface it as a HIGH-severity Deployment finding in `findings.md` regardless of how green the rest of the pipeline looks.
 
 ### Output Rules
 
@@ -399,17 +426,17 @@ Before considering discovery complete, verify:
 - Findings mapped to 7 dimensions with L0-L4 level estimates
 - Anti-patterns detected and flagged with file:line references
 - User interviewed about gaps (unless skip-interview mode)
-- CD-DISCOVERY.md written to project root with populated capability matrix
-- Deployment Orchestrator section populated when an orchestrator is in scope
-- GitHub Repository Posture section populated when GitHub is in scope (or explicitly skipped)
-- **Branch-protection framing rule applied**: findings interpreted in the context of overall feedback-loop quality, not treated as findings in isolation
-- **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding regardless of how green the rest of the pipeline looks
+- `cd-discovery/summary.md` and `cd-discovery/findings.md` written to project root with populated capability matrix and per-dimension sections
+- Sub-playbook evidence (GitHub and Octopus) woven into the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
+- `cd-discovery/suggestions.md` written when `--suggest` is in scope
+- **Branch-protection framing rule applied** (dimension level): findings interpreted in the context of overall feedback-loop quality, not treated as findings in isolation
+- **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect in `summary.md` with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding in `findings.md` regardless of how green the rest of the pipeline looks
 - **Strengths to Protect section populated**: at least one entry per pipeline that has *anything* working — an empty section means the report is incomplete
 - Every finding backed by evidence (file paths) or tagged as [MISSING]
-- No API keys, auth tokens, sensitive variable values, or full alert/PR payloads present in the report or agent memory
+- No API keys, auth tokens, sensitive variable values, or full alert/PR payloads present in the output files or agent memory
 
 ---
 
 ## Updating an existing report
 
-When `CD-DISCOVERY.md` already exists and the user has additional context to fold in (corrections, clarifications, downgrades, new findings), do NOT re-run this playbook from scratch. Use the dedicated update path at `~/.claude/skills/cd-discovery/UPDATE-PLAYBOOK.md` — it ingests the existing report, decomposes user context into atomic claims, re-runs only the scan slices needed to verify those claims, and edits the report in place while preserving the audit trail.
+When the `cd-discovery/` directory already exists and the user has additional context to fold in (corrections, clarifications, downgrades, new findings), do NOT re-run this playbook from scratch. Use the dedicated update path at `~/.claude/skills/cd-discovery/UPDATE-PLAYBOOK.md` — it ingests the existing report files, decomposes user context into atomic claims, re-runs only the scan slices needed to verify those claims, and edits the output files in place while preserving per-file audit trails.

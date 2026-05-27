@@ -223,17 +223,72 @@ Apply the Quality Gate at the end. Do not declare done if any item is unchecked.
 
 When invoking the agent's bash steps for Tier 1 Octopus re-verification, pass the API key via the environment as documented above for the fresh-discovery path.
 
+## Spawn the Migrate Agent
+
+Used when the user chose **Migrate** in the W5 legacy-detection prompt. Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuous-delivery-strategist"` and the following prompt structure:
+
+```
+<objective>
+A legacy CD-DISCOVERY.md exists at the project root and the user has chosen to migrate it to the new cd-discovery/ directory layout. Split the legacy file into cd-discovery/summary.md, cd-discovery/findings.md, and (if the legacy file contained roadmap content) cd-discovery/suggestions.md. Preserve all content. Preserve the revision history. Remove the legacy file via `git rm` once the new files are written so the migration lands as a single reviewable commit.
+
+{If --suggest was also passed AND the legacy file had no roadmap content:}
+After migration, continue into suggestions generation against the migrated findings (write cd-discovery/suggestions.md using TEMPLATE-suggestions.md and the suggestion voice).
+</objective>
+
+<required_reading>
+1. CD-DISCOVERY.md at the project root — the legacy file to migrate
+2. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — target template
+3. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — target template
+4. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — target template (only required if migrating roadmap content or running --suggest after migration)
+</required_reading>
+
+<procedure>
+1. Read the legacy file end-to-end.
+2. Validate parseability: the legacy file must contain at least an Executive Summary, Capability Matrix, and one Detailed Findings dimension. If not, abort migration and report the validation failure to the launcher so it can offer Fresh as a fallback.
+3. Split by section:
+   - Executive Summary, Capability Matrix, Strengths to Protect, Anti-Patterns Detected, Recommended Next Steps → cd-discovery/summary.md
+   - Detailed Findings (per dimension) → cd-discovery/findings.md
+   - "Deployment Orchestrator" section content → woven into the Deployment dimension of cd-discovery/findings.md
+   - "GitHub Repository Posture" section content → woven into Build & CI / Security / Release Process dimensions per the legacy file's cross-stitch lines
+   - Pre-existing roadmap content (from prior --assess runs) → cd-discovery/suggestions.md, reframed from directive voice to suggestion voice (gap → what improving unlocks → cost/disruption; sequence as dependency map)
+4. Preserve revision history: if the legacy file has a "Changes from previous report" or revision section, copy entries into each new file's revision log by topic. Entries that cannot be cleanly assigned go to cd-discovery/summary.md's log with a note.
+5. Prepend a migration entry to each new file's revision log:
+
+   ### YYYY-MM-DD — migrated from CD-DISCOVERY.md
+   - Content split into new layout; see git history for the source file.
+
+6. Remove the legacy file via `git rm CD-DISCOVERY.md`.
+7. If --suggest was passed AND step 3 did not produce a suggestions.md (no legacy roadmap content), continue into a fresh suggestions generation against the migrated findings using TEMPLATE-suggestions.md and the suggestion voice.
+</procedure>
+
+<sub_playbook_weaving>
+When weaving "Deployment Orchestrator" or "GitHub Repository Posture" content into findings.md dimensions, follow the dimension assignment from the legacy file's cross-stitch lines (e.g., "Build & CI: L1 → L2 because ..."). When a cross-stitch row is ambiguous (e.g., mentions multiple dimensions), put the evidence under the most-cited dimension and add "see also" notes referencing the other dimensions.
+</sub_playbook_weaving>
+
+<output>
+- cd-discovery/summary.md, cd-discovery/findings.md, and (when applicable) cd-discovery/suggestions.md written.
+- CD-DISCOVERY.md removed via git rm.
+- Each new file has a migration entry at the top of its Revision history.
+- Save findings to agent memory under the new cd-discovery/ path; if memory previously referenced CD-DISCOVERY.md for this repo, update the reference.
+- Report a short summary: which files were written, whether suggestions.md was generated this pass, and whether any cross-stitch ambiguity required a "see also" note.
+</output>
+```
+
 ## Report Completion
 
 After the agent returns:
 
 **Fresh-discovery path:**
-- If `--assess` was NOT set: display "CD-DISCOVERY.md written. Run `/cd-discovery --assess` for a full assessment with improvement roadmap."
-- If `--assess` was set: the agent will have produced both the discovery report and the assessment. Display the summary.
+- If `--suggest` was NOT set: display that `cd-discovery/summary.md` and `cd-discovery/findings.md` have been written. Mention that the user can run `/cd-discovery --suggest` to generate a `suggestions.md` file with gap analysis, tradeoffs, and a dependency map.
+- If `--suggest` was set: the agent will have produced all three files. Display the summary.
 - If Octopus discovery ran, mention which tier was used (API / CaC / Questionnaire) so the user understands the confidence level.
 - If GitHub discovery ran, mention which tier was used (Tier 1 / Tier 2) and which `gh` identity was authenticated.
 
 **Update path:**
 - Display a 3-5 line summary: which dimensions had level/confidence changes, how many claims verified vs. user-reported, whether GitHub / Octopus were re-scanned this pass, and the location of the new bottom-of-file revision entry.
 - If any claims were `CONTRADICTED` and the user overrode the codebase/API, surface that explicitly so the user remembers the override exists in the report.
-- Remind the user to `git diff CD-DISCOVERY.md` before committing if they want to review the edits.
+- Remind the user to `git diff cd-discovery/` before committing if they want to review the edits.
+
+**Migration path (W5):**
+- Display a 3-5 line summary: which files were written, whether `suggestions.md` was generated this pass (either from legacy roadmap content or from a `--suggest` continuation), and whether the legacy `CD-DISCOVERY.md` was removed via `git rm`.
+- Remind the user to `git status` to see the staged deletion + new directory and `git diff --cached` to review the migration before committing.

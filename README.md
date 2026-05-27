@@ -1,6 +1,6 @@
 # continuous-delivery-discovery
 
-A [Claude Code](https://claude.com/claude-code) skill + agent bundle that performs **automated CI/CD pipeline discovery** on any repository. Produces a structured `CD-DISCOVERY.md` capability assessment scored against the L0–L4 maturity model across seven dimensions (Build & CI, Testing, Deployment Automation, Release Process, Environments & Infra, Observability, Progressive Delivery).
+A [Claude Code](https://claude.com/claude-code) skill + agent bundle that performs **automated CI/CD pipeline discovery** on any repository. Produces structured capability assessments scored against the L0–L4 maturity model across seven dimensions (Build & CI, Testing, Deployment Automation, Release Process, Environments & Infra, Observability, Progressive Delivery).
 
 The skill is a thin launcher; the heavy lifting is done by the bundled `continuous-delivery-strategist` agent, which reads playbooks for the main codebase scan plus optional sub-scans for **GitHub** (branch protection, security alerts, workflow execution reality, PR cadence) and **Octopus Deploy** (REST API → Config-as-Code → questionnaire fallback tiers).
 
@@ -65,14 +65,18 @@ Once installed, run from any project in Claude Code:
 
 | Command | What it does |
 |---|---|
-| `/cd-discovery` | Scan codebase, interview about gaps, write `CD-DISCOVERY.md` |
+| `/cd-discovery` | Scan codebase, interview about gaps, write discovery output to `cd-discovery/` |
 | `/cd-discovery --skip-interview` | Same, but tag every gap `[NEEDS CLARIFICATION]` instead of asking |
-| `/cd-discovery --assess` | Discovery + a phased improvement roadmap |
+| `/cd-discovery --suggest` | Discovery + suggestions.md (gaps + tradeoffs + dependency map; a resource, not a plan) |
 | `/cd-discovery --update` | Refresh an existing report with new context — verifies what's verifiable, preserves the audit trail |
 | `/cd-discovery --skip-github` | Skip the GitHub sub-playbook even if the repo is on GitHub |
 | `/cd-discovery --octopus-url <u> --octopus-api-key <k>` | Force Tier 1 Octopus discovery against a specific server |
 
 The full flag set is in `skills/cd-discovery/SKILL.md` frontmatter.
+
+With `--suggest`, the agent writes a third file (`cd-discovery/suggestions.md`) alongside `summary.md` and `findings.md`. Each suggestion identifies a gap from the findings, names what improving it would unlock, and states the cost. Sequence guidance is expressed as a dependency map — the team owns sequencing. No time-duration estimates. The file is a resource, not a plan: engineers form their own opinion and decide.
+
+If you run `/cd-discovery` first and decide later that you want suggestions, run `/cd-discovery --suggest` against the existing directory — the agent reads your existing findings and writes only `suggestions.md` (no re-scan).
 
 ## What gets scanned
 
@@ -84,17 +88,17 @@ The full flag set is in `skills/cd-discovery/SKILL.md` frontmatter.
 
 ## Output
 
-Single file at the project root: `CD-DISCOVERY.md`. Sections include:
+The skill produces a `cd-discovery/` directory at the project root:
 
-1. Executive Summary
-2. Capability Matrix (seven dimensions × L0–L4 with confidence calls)
-3. Detailed Findings per dimension
-4. Deployment Orchestrator section (if Octopus is in scope)
-5. GitHub Repository Posture section (if applicable)
-6. Anti-Patterns observed
-7. Recommended Next Steps
+- `cd-discovery/summary.md` — executive summary, capability matrix (L0–L4 across seven dimensions), Strengths to Protect, anti-patterns, top three quick wins.
+- `cd-discovery/findings.md` — per-dimension deep dive. GitHub and Octopus evidence (when those sub-playbooks run) weaves into the relevant dimensions inline — there are no dedicated GitHub or Octopus sections.
+- `cd-discovery/suggestions.md` — only when `--suggest` has run. See description above.
 
-With `--assess`, the agent adds a phased improvement roadmap (2–6 week phases) with prerequisites, proof points, and audience-appropriate framing.
+Each file is standalone-readable and maintains its own bottom-of-file revision log when you run `/cd-discovery --update`.
+
+### Migrating from the previous single-file output
+
+If you ran an earlier version of this skill that wrote `CD-DISCOVERY.md` at the project root, the next `/cd-discovery` run will detect the legacy file and offer three options: **Migrate** (split it into the new layout, preserving content and revision history; removes the legacy file as part of the commit), **Fresh** (discard and run a new discovery), or **Cancel**. Choose Migrate to keep your audit trail intact.
 
 ## Contributing
 

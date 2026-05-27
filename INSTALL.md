@@ -169,7 +169,7 @@ Report back to the user:
 - For symlinked installs: remind them that future updates are just `git pull` inside the cloned repo (no need to re-invoke this playbook), and warn that deleting/moving the cloned repo will break the install silently.
 - How to invoke:
   - `/cd-discovery` — fresh discovery
-  - `/cd-discovery --assess` — discovery + improvement roadmap
+  - `/cd-discovery --suggest` — discovery + suggestions.md (gaps, tradeoffs, dependency map)
   - `/cd-discovery --update` — refresh an existing report
   - Full flag reference in `~/.claude/skills/cd-discovery/SKILL.md`
 

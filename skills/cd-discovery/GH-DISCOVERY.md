@@ -2,7 +2,7 @@
 
 Use this sub-playbook when the repository is hosted on **GitHub** and the discovery scan needs to see the GitHub-side state that is not visible from `.github/workflows/` alone: branch protection, security alert backlog, workflow execution reality, PR cadence, and repository security feature state.
 
-It produces a **GitHub Repository Posture** section that gets folded into `CD-DISCOVERY.md`, and feeds revisions back into the main capability matrix (Build & CI, Testing, Security, Release Process).
+It produces a **weave map** of evidence items (each tagged with target dimensions) that the strategist weaves into `findings.md`. The findings feed into the main capability matrix (Build & CI, Testing, Security, Release Process).
 
 ## When to run
 
@@ -285,47 +285,42 @@ Build-once-with-config-swap-at-deploy (identical artifact bytes; runtime config 
 
 ---
 
-## Output: GitHub Repository Posture block
+## Output: Weave Map
 
-Insert a section into `CD-DISCOVERY.md` matching the template in `TEMPLATE.md`. Shape:
+This sub-playbook does **not** produce a self-contained "GitHub Repository Posture" section. Instead, output a **weave map** — a structured list of evidence items, each tagged with the target dimension(s) in `findings.md`. The strategist will drop each item into the relevant dimension section.
 
-```markdown
-## GitHub Repository Posture
+### Weave-map format
 
-**Discovery source:** gh CLI REST API (Tier 1) | Questionnaire (Tier 2) | N/A
-**Confidence:** HIGH | MED | LOW
-**Scanned:** YYYY-MM-DD
-**Authenticated as:** {gh user} (viewerPermission: {READ | TRIAGE | WRITE | MAINTAIN | ADMIN})
+Each line:
 
-### Branch protection and merge gating
-{table}
-
-### Repository-level security feature state
-{table}
-
-### Open security alert backlog
-{table — counts only, never payloads}
-
-### Workflow execution reality (last N runs)
-{per-workflow table}
-**Workflows defined but not running:** {list with last-success date}
-
-### PR cadence (last 100 merged PRs)
-- Base-branch distribution: …
-- Lead time p50/p90/p99/mean: …
-
-### Dependabot PR queue
-- N open
-
-### CODEOWNERS
-- present at {path} | missing
-
-### Cross-stitch into capability matrix
-- Build & CI: {old} → {new} because {reason — explicitly cite Observability/Testing/Deployment state when downgrading on branch-protection state alone}
-- Testing: {old} → {new} because {reason}
-- Security: {old} → {new} because {reason}
-- Release Process: {old} → {new} because {reason — note documentation drift if CLAUDE.md branching model contradicts observed base-branch distribution}
 ```
+{Dimension}: {file or gh-resource reference} — {one-line finding} [evidence: gh CLI Tier {N}, scanned {YYYY-MM-DD}]
+```
+
+Where `{Dimension}` is one of: `Build & CI`, `Testing`, `Deployment`, `Infrastructure as Code`, `Observability`, `Release Process`, `Security`.
+
+A finding that legitimately bears on multiple dimensions can appear on multiple lines, one per dimension, with the same evidence reference. Do not invent dimension assignments — only tag dimensions where the finding has clear bearing.
+
+### Example weave map
+
+```
+Testing: .github/workflows/ci.yml:34 — no E2E job runs on the default-branch trigger [evidence: gh CLI Tier 1, scanned 2026-05-26]
+Security: branch protection on `main` does not require code scanning to pass [evidence: gh CLI Tier 1, scanned 2026-05-26]
+Build & CI: workflow execution reality — 12% failure rate over last 50 runs on `build-and-test` [evidence: gh CLI Tier 1, scanned 2026-05-26]
+Release Process: 47 open Dependabot PRs, oldest 134 days [evidence: gh CLI Tier 1, scanned 2026-05-26]
+```
+
+### Severity framing rule (preserved from prior version)
+
+When a finding describes missing branch protection or missing required status checks on a default branch, **do not** assign HIGH severity in isolation. First survey Observability, Testing, and Deployment Automation evidence. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Tag the evidence line with the severity reasoning so the reader can audit the call:
+
+```
+Build & CI: default branch `main` has no required status checks [evidence: gh CLI Tier 1; severity weighting: Observability=HIGH (Datadog deploy markers + 5min MTTR), Testing=MED, Deployment=L3 (canary + auto-rollback) — net severity LOW]
+```
+
+### Authentication preflight (preserved)
+
+Before any gh CLI call, print the authenticated `gh` user and `viewerPermission` to the conversation so the reader can confirm identity. Do not echo auth tokens to the report, memory, or weave map.
 
 ---
 

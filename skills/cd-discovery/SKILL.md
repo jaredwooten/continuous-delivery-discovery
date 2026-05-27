@@ -96,19 +96,32 @@ Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuo
 
 ```
 <objective>
-Execute CI/CD discovery for this repository. Read the discovery playbook, scan the codebase using its methodology, analyze findings against the L0-L4 capability model, and write CD-DISCOVERY.md to the project root.
+Execute CI/CD discovery for this repository. Read the discovery playbook, scan the codebase using its methodology, integrate any sub-playbook weave-map output into the relevant dimensions, and write the cd-discovery/ output directory at the project root.
+
+Always write:
+- cd-discovery/summary.md (from TEMPLATE-summary.md)
+- cd-discovery/findings.md (from TEMPLATE-findings.md)
+
+{If --suggest:}
+Additionally write:
+- cd-discovery/suggestions.md (from TEMPLATE-suggestions.md)
+
+The suggestions file uses the suggestion voice: lead with tradeoffs (gap → what improving unlocks → cost/disruption), not directives. Express sequence as a dependency map; engineers own sequencing. No time-duration estimates. Do not use the word "roadmap."
 
 {If --skip-interview: "Skip the interactive interview. Tag all gaps with [NEEDS CLARIFICATION] instead."}
 {If NOT --skip-interview: "After scanning, present a summary and interview the user about gaps using AskUserQuestion."}
-{If --assess: "After writing CD-DISCOVERY.md, continue directly into a full assessment with a phased improvement roadmap. The roadmap must describe sequence and dependencies only — do not attach time-duration estimates (weeks, days, sprints, quarters, dates) to phases or items. DORA/measurement windows describing the team's current state are fine; phase-sizing estimates are not."}
+
+{If incremental suggest (W3): "Do NOT re-scan. Read the existing cd-discovery/summary.md and findings.md and write only cd-discovery/suggestions.md against the existing findings."}
 </objective>
 
 <required_reading>
 Read these files before starting:
 1. ~/.claude/skills/cd-discovery/PLAYBOOK.md — Discovery methodology to execute
-2. ~/.claude/skills/cd-discovery/TEMPLATE.md — Output template for CD-DISCOVERY.md
-3. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only required if Octopus is in scope; see below)
-4. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only required if the repo is on GitHub; see below)
+2. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — Template for cd-discovery/summary.md
+3. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — Template for cd-discovery/findings.md
+4. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — Template for cd-discovery/suggestions.md (only required when --suggest is in scope)
+5. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only when Octopus is in scope)
+6. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only when the repo is on GitHub)
 </required_reading>
 
 <octopus_inputs>
@@ -117,34 +130,35 @@ Read these files before starting:
   OCTOPUS_SPACE: {space-or-empty}
   OCTOPUS_PROJECT: {project-or-empty}
   OCTOPUS_API_KEY: provided via env var to subsequent bash calls — do NOT echo, do NOT include in report or memory.
-  Run Tier 1 of OCTOPUS-DISCOVERY.md.
+  Run Tier 1 of OCTOPUS-DISCOVERY.md and produce a weave map (evidence-tagged findings to integrate into cd-discovery/findings.md dimensions).
 {Elif Tier 2 candidate:}
-  No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md.
+  No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md to produce a weave map.
 {Elif Tier 3 fallback:}
-  No Octopus credentials or CaC found. Ask the user once whether this repo is deployed via Octopus. If yes, run the Tier 3 questionnaire from OCTOPUS-DISCOVERY.md. If no, skip the Octopus sub-playbook.
+  No Octopus credentials or CaC found. Ask the user once whether this repo is deployed via Octopus. If yes, run the Tier 3 questionnaire from OCTOPUS-DISCOVERY.md and produce a weave map. If no, skip the Octopus sub-playbook.
 {Elif user opted out:}
   User has indicated this repo does not use Octopus. Do not run the Octopus sub-playbook.
 </octopus_inputs>
 
 <github_inputs>
 {If repo has a github.com remote AND gh is authenticated AND NOT --skip-github:}
-  Run Tier 1 of GH-DISCOVERY.md against the repo. Use the existing gh CLI auth; do not echo auth tokens to the report or memory. Print the authenticated gh user and viewerPermission to the conversation as part of the preflight so the user can confirm identity.
+  Run Tier 1 of GH-DISCOVERY.md against the repo and produce a weave map. Use the existing gh CLI auth; do not echo auth tokens to the report or memory. Print the authenticated gh user and viewerPermission to the conversation as part of the preflight so the user can confirm identity.
 {Elif repo has a github.com remote AND --skip-github:}
-  Skip the GitHub sub-playbook. Tag the GitHub Repository Posture section as `[SKIPPED by user]` or omit it entirely.
+  Skip the GitHub sub-playbook. Do not write GitHub evidence to the findings.
 {Elif repo has a github.com remote AND gh is unauthenticated:}
-  Note that gh is not authenticated. Either prompt the user to run `gh auth login` (then resume Tier 1) or fall back to Tier 2 (questionnaire) from GH-DISCOVERY.md.
+  Note that gh is not authenticated. Either prompt the user to run `gh auth login` (then resume Tier 1 to produce a weave map) or fall back to Tier 2 (questionnaire) from GH-DISCOVERY.md to produce a weave map.
 {Else (no github.com remote):}
   Skip the GitHub sub-playbook silently — not applicable.
 </github_inputs>
 
 <framing_rule>
-When the GitHub sub-playbook surfaces missing branch protection or missing required status checks on a default branch, do NOT classify that as a high-severity finding in isolation. First survey Observability, Testing, and Deployment Automation. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Document the reasoning explicitly in the cross-stitch lines so the reader can audit the severity call.
+When the GitHub sub-playbook surfaces missing branch protection or missing required status checks on a default branch, do NOT classify that as a high-severity finding in isolation. First survey Observability, Testing, and Deployment Automation. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Document the reasoning explicitly in the weave-map evidence-tag reasoning so the reader can audit the severity call.
 </framing_rule>
 
 <output>
-- Write CD-DISCOVERY.md to the project root, including the Deployment Orchestrator section if Octopus discovery ran AND the GitHub Repository Posture section if the GitHub sub-playbook ran
-- Save project findings to your agent memory — but never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content
-{If --assess: "- Continue with full assessment and phased improvement roadmap"}
+- Write cd-discovery/summary.md and cd-discovery/findings.md.
+- If --suggest is in scope, write cd-discovery/suggestions.md.
+- Weave GH and Octopus weave-map items into the relevant findings.md dimensions (and into summary.md's Strengths to Protect if tagged [strength-to-protect]). Do not create dedicated "GitHub Repository Posture" or "Deployment Orchestrator" sections.
+- Save project findings to your agent memory — record the cd-discovery/ directory path, not CD-DISCOVERY.md. Never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content.
 </output>
 ```
 
@@ -156,12 +170,12 @@ Used when the user chose **Update** (either by `--update` flag or by the existin
 
 ```
 <objective>
-Update the existing CD-DISCOVERY.md in the project root by folding in additional context the user has supplied. Verify every claim that can be verified against the codebase or live APIs (gh CLI, Octopus REST API); tag the rest [USER-REPORTED] and lower confidence accordingly. Edit the file in place — preserve the audit trail by reframing prior findings rather than deleting them. Append a revision-history entry at the bottom and prepend a Last revised line at the top.
+Update the existing cd-discovery/ directory by folding in additional context the user has supplied. Each claim must be tagged with the file(s) it touches ([summary], [findings], [suggestions], or multi-tag). Multi-file claims (e.g., a dimension level change) must edit both the matrix row in summary.md AND the per-dimension section in findings.md in the same pass. Verify every claim that can be verified against the codebase or live APIs (gh CLI, Octopus REST API); tag the rest [USER-REPORTED] and lower confidence accordingly. Edit each file in place using granular Edit calls — preserve the audit trail by reframing prior findings rather than deleting them. Append a per-file revision log entry to each file the agent touched.
 </objective>
 
 <required_reading>
 Read these files before starting:
-1. The `CD-DISCOVERY.md` at the project root — current report
+1. All files under cd-discovery/ at the project root — current reports (summary.md, findings.md, and suggestions.md if present)
 2. ~/.claude/skills/cd-discovery/UPDATE-PLAYBOOK.md — update methodology (Phases 1–6 and Quality Gate)
 
 Re-read these only if a user claim needs the corresponding slice re-verified:
@@ -200,9 +214,10 @@ Apply the Quality Gate at the end. Do not declare done if any item is unchecked.
 </execution>
 
 <output>
-- Edited CD-DISCOVERY.md in the project root with new revision header, updated capability matrix / findings / anti-patterns / roadmap, and a new bottom-of-file revision entry
-- Save updated project findings to your agent memory — never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content
-- Report which claims verified, which were contradicted (with user resolution), and which remain [USER-REPORTED] and why
+- Edit the relevant file(s) in cd-discovery/ using granular Edit calls (no whole-file rewrites).
+- Append a per-file revision log entry to each file the agent touched (## Revision history at the bottom). Files not touched get no entry today.
+- Save updated project findings to your agent memory — never store auth tokens, secret values, sensitive variable values, full alert payloads, or full PR content.
+- Report which claims verified, which were contradicted (with user resolution), and which remain [USER-REPORTED] and why. Note which file(s) each claim updated.
 </output>
 ```
 

@@ -1,6 +1,6 @@
 # CI/CD Discovery — Update Sub-Playbook
 
-Use this sub-playbook when the user has additional context to fold into an existing `CD-DISCOVERY.md` that the automatic scan can't see — e.g., "the Groovy integration tests are abandoned, Octopus invokes Playwright post-Stage instead" or "Prod deploys are human-attended so failure emails are low-value."
+Use this sub-playbook when the user has additional context to fold into an existing `cd-discovery/` directory that the automatic scan can't see — e.g., "the Groovy integration tests are abandoned, Octopus invokes Playwright post-Stage instead" or "Prod deploys are human-attended so failure emails are low-value."
 
 The goal: verify everything that can be verified against the codebase and live APIs, then edit the report in place so the capability matrix, detailed findings, anti-patterns, recommendations, and roadmap reflect the new understanding — without losing the audit trail.
 
@@ -8,15 +8,15 @@ The goal: verify everything that can be verified against the codebase and live A
 
 Triggered by:
 - `/cd-discovery --update [<context-or-path>]` from the launcher.
-- Or: launcher detects an existing `CD-DISCOVERY.md` and the user chooses **Update** from the overwrite/update/cancel prompt.
+- Or: launcher detects an existing `cd-discovery/` directory and the user chooses **Update** from the overwrite/update/cancel prompt.
 
-If `CD-DISCOVERY.md` does not exist, abort and tell the user to run `/cd-discovery` first to generate the baseline. The update path edits an existing report; it does not create one.
+If `cd-discovery/` does not exist, abort and tell the user to run `/cd-discovery` first to generate the baseline. The update path edits an existing report; it does not create one.
 
 ## Inputs
 
 | Input | Source |
 |-------|--------|
-| Path to existing `CD-DISCOVERY.md` | repo root |
+| Path to existing `cd-discovery/` directory | repo root |
 | User context | inline string, file path, or interactive `AskUserQuestion` capture |
 | Fresh `gh` auth (optional) | `gh auth status` — needed for GitHub-side re-verification |
 | Fresh Octopus API key (optional) | `--octopus-api-key` / `OCTOPUS_API_KEY` — needed for Octopus-side re-verification |
@@ -25,19 +25,24 @@ The update path **does not** re-run the full PLAYBOOK / GH-DISCOVERY / OCTOPUS-D
 
 ---
 
-## Phase 1 — Ingest current report
+## Phase 1 — Ingest current report into a working memory index
 
-Read `CD-DISCOVERY.md` end-to-end. Build a working index in agent memory (no scratch file) covering:
+Read all markdown files in `cd-discovery/`:
 
-- Capability matrix row per dimension — `(dimension, level, confidence, key_evidence)`
-- Detailed findings — section name, list of bullet items with FOUND/PARTIAL/MISSING/USER-REPORTED tags
-- After-discovery subsections present (e.g., "After Octopus discovery", "After GitHub API discovery") — these are the precedent for the new "After <date> context refresh" subsection
-- Anti-Patterns table — row per pattern with location and impact text
-- Recommended Next Steps — ordered list
-- Phased Improvement Roadmap — phase titles and item lists
-- Existing revision-history header lines and bottom-of-file "Changes from previous report" entries
+- `cd-discovery/summary.md` — always present
+- `cd-discovery/findings.md` — always present
+- `cd-discovery/suggestions.md` — present only when `--suggest` was previously run
 
-This index is your working set for Phase 5 edits. Do not write it to disk.
+For each file, build a working memory index that captures:
+
+- Dimensions and their current levels + confidence (from summary.md matrix and findings.md sections)
+- Strengths to Protect (from summary.md)
+- Anti-patterns (from summary.md)
+- Per-dimension artifacts and gaps (from findings.md)
+- Suggestion items and their dependency edges (from suggestions.md if present)
+- Each file's existing Revision history (so update entries don't duplicate past events)
+
+If `cd-discovery/` does not exist, abort with the message: "No cd-discovery/ directory found — run `/cd-discovery` first to generate the baseline, then re-run with `--update`."
 
 ---
 
@@ -60,30 +65,22 @@ Do not ask more than one batch — interview fatigue degrades quality.
 
 ---
 
-## Phase 3 — Decompose into atomic claims
+## Phase 3 — Decompose into atomic claims; tag each with target file(s)
 
-Break the user's context into a numbered list. Each claim has:
+Convert the user's context into a list of atomic claims. Each claim is a single, verifiable assertion (e.g., "Testing is now L2 because we added E2E coverage in CI", not "we improved testing").
 
-```
-[N] Claim: <one-sentence summary>
-    Affects: <dimension(s) + section(s)>
-    Verifiability: CODEBASE | GITHUB-API | OCTOPUS-API | EXTERNAL
-    Implied action: add finding | downgrade finding | remove finding | reframe finding | rename anti-pattern | update level | update confidence | reorder roadmap | add roadmap item
-    Source phrase: "<verbatim snippet from user context>"
-```
+For each claim, tag the file(s) it touches:
 
-**Verifiability rules:**
-- `CODEBASE` — anything that can be confirmed by reading a file, running `grep`, or checking `git log` in the current repo.
-- `GITHUB-API` — branch protection, security alerts, workflow runs, PR cadence, repository settings. Requires `gh auth status` success.
-- `OCTOPUS-API` — deployment processes, lifecycles, runbooks, variables, subscriptions, recent deployments. Requires a fresh API key.
-- `EXTERNAL` — only the user / team knows. Examples: "Prod deploys are human-attended", "this code is no longer executed by any pipeline", "we abandoned X six months ago".
+- `[summary]` — claims that change the capability matrix, Strengths to Protect, anti-patterns, or next steps
+- `[findings]` — claims that add or change evidence in a per-dimension section
+- `[suggestions]` — claims that add, remove, or supersede a suggestion (only valid when suggestions.md exists)
+- Multi-tag — claims that change a dimension's level touch both `[summary]` (matrix row) and `[findings]` (the dimension section). The decomposition step must flag these as multi-file claims so they do not get half-applied.
 
-**Show the user the decomposed list** via a single `AskUserQuestion`:
-- "Decomposition looks right — proceed to verification"
-- "Let me revise — I'll re-paste"
-- "Cancel"
+Show the tagged claim list to the user. The user confirms or amends before any verification or edit runs. If the user removes a claim or adds a new one, re-tag and re-confirm.
 
-Do not proceed to Phase 4 without confirmation. Decomposition mistakes propagate into edits; surface them while they're cheap to fix.
+#### Multi-file claim propagation rule
+
+When a tagged claim touches multiple files, every file in the tag must be edited in the same pass. The Quality Gate (below) fails if a multi-file claim landed in some but not all of its tagged files.
 
 ---
 
@@ -162,101 +159,61 @@ The user's call here is final. Record their choice so the revision-history entry
 
 ---
 
-## Phase 5 — Edit `CD-DISCOVERY.md` in place
+## Phase 5 — Edit in place using granular Edit calls
 
-Use the `Edit` tool exclusively — never `Write`. The audit trail in the report is load-bearing; replace text granularly, do not rewrite whole sections.
+For each confirmed claim, use the `Edit` tool to make targeted changes to the file(s) listed in the claim's tag. Rules:
 
-### 5.1 Update file header
-- Prepend a new top-line revision header immediately after the `> Generated: ...` line:
-  ```
-  > Last revised: <YYYY-MM-DD> (<one-sentence reason — corrections from <source>, downgrades to <topic>, new finding on <topic>>)
-  ```
-- Push the existing top `Last revised` line down to `Prior revision` position. Keep at most 3 `Prior revision` lines in the header — older ones live only in the bottom "Changes from previous report" section.
-- If Octopus or GitHub was not re-scanned this pass, add a brief note immediately below the new header explaining which vintage the unrefreshed section reflects.
+- **No whole-file rewrites.** Each `Edit` call replaces a single coherent block (a matrix row, a finding entry, a suggestion item, a section header — never a whole file).
+- **Touch only the files the claims affect.** Files not mentioned in any claim's tag must not be edited.
+- **Cross-file claims edit each file in turn within the same pass.** Do not commit between the two halves of a multi-file claim; if the executor is committing per-pass, the commit covers all files the claim touched.
 
-### 5.2 Update Capability Matrix
-For each affected dimension:
-- Update Level cell if the user's claims shift the dimension up or down. Use the ranges seen in the existing report (e.g., `L1-L2`, `L2`).
-- Update Confidence cell. Floor: MED for any user-reported-only delta. HIGH only if there's matching codebase/API verification.
-- Update Key Evidence cell to one-sentence summary of the new state, referencing the new context.
-
-### 5.3 Detailed Findings
-For each affected dimension, **add a new subsection** following the existing pattern:
-```
-**After <YYYY-MM-DD> context refresh:**
-- <revised understanding tied explicitly to the user's claim>
-- <verification outcome and source — "verified via grep on X", "user-reported, no fresh Octopus API key available", etc.>
-- <impact on this dimension's level and confidence — old → new>
-```
-
-**Do not delete prior findings.** Reframe them in place where needed. If a prior bullet is now wrong, edit its text to add a `**Updated <date>:**` annotation explaining the correction rather than removing the bullet. The existing 2026-05-12 entries in the file are the model — they keep the old framing visible and explain the downgrade.
-
-### 5.4 Anti-Patterns table
-- Downgrade: keep the row, annotate the Impact column with `Downgraded from <old severity> (<old reason>) → <new severity> (<new reason>) per <YYYY-MM-DD>`. Do not remove.
-- Remove: only if the claim is `VERIFIED` and the anti-pattern is provably absent now. Move the removed row to the bottom-of-file "Changes from previous report" entry for the audit trail.
-- Add: insert new rows at the end of the table. Tag with `[USER-REPORTED]` in the Impact column if unverified.
-
-### 5.5 Recommended Next Steps & Phased Improvement Roadmap
-Re-order so the highest-leverage item is still #1. Add new items inline. Remove items only if the user explicitly says they're no longer relevant — otherwise reframe.
-
-When editing roadmap phases, prefer in-place updates of phase items to wholesale phase rewrites. The phase titles ("Phase 1 — Deploys can no longer fail silently...") should remain stable unless the user's context invalidates the phase's premise.
+If a claim was tagged `CONTRADICTED` in Phase 4 verification, do not apply the user-reported version unless the user explicitly overrides after seeing the contradiction.
 
 **No time-duration estimates on roadmap phases or items.** When applying updates, do not introduce weeks, days, sprints, quarter targets, or dates onto roadmap phases — even if the user's context phrases improvements in time-bound language, translate to sequence/dependency framing. If the user explicitly asks for a date or duration in the roadmap, surface it as out of scope for this report and let them place it in their own planning tool. (DORA windows and other observed-state durations elsewhere in the report are unaffected.)
 
-### 5.6 Cross-stitch consistency
-After all per-dimension edits, scan the cross-stitch entries in the Deployment Orchestrator and GitHub Repository Posture sections (where they exist). If any cross-stitch contradicts a Phase 5.2 capability-matrix update, edit the cross-stitch to match — and note the change in the bottom-of-file revision entry.
-
 ---
 
-## Phase 6 — Append revision summary
+## Phase 6 — Append per-file revision log entries
 
-At the bottom of `CD-DISCOVERY.md`, **prepend** a new entry to the "Changes from previous report" section (newest first, matching the existing order in the file):
+For each file the agent touched in Phase 5, append one entry to that file's bottom `## Revision history` section. Files the agent did not touch get no entry today.
 
-```markdown
-### <YYYY-MM-DD> — context refresh
+Each entry uses this format:
 
-Triggered by: <one-line summary of user-supplied context>
-
-**Verification posture this pass:**
-- Codebase slices re-run: <list>
-- GitHub-API slices re-run: <list — or "skipped, gh unauthenticated">
-- Octopus-API slices re-run: <list — or "skipped, no fresh API key; Octopus section reflects <prior-scan-date> vintage">
-
-**Per-claim outcomes:**
-- [1] <claim summary> — VERIFIED via <source>
-- [2] <claim summary> — CONTRADICTED by <source>; user overrode and marked [USER-REPORTED]
-- [3] <claim summary> — UNVERIFIABLE — [USER-REPORTED]
-- ...
-
-**Capability matrix deltas:**
-- <Dimension>: <old level/conf> → <new level/conf> because <one-line reason>
-- ...
-
-**Anti-Patterns table deltas:**
-- Downgraded: <pattern name> (<old sev> → <new sev>) because <reason>
-- Added: <pattern name>
-- Removed: <pattern name> (relocated here for audit trail): <original row contents>
-
-**Roadmap deltas:**
-- <Phase N>: <change summary>
-- ...
-
-**Framing rule applied:** <if any branch-protection or feedback-loop framing was revisited this pass, document it here>
 ```
+### YYYY-MM-DD — context refresh
+- {dimension or section}: {change} ({verification status})
+- {dimension or section}: {change} ({verification status})
+```
+
+Verification status is one of: `verified` (re-confirmed against the codebase / live API), `user-reported` (could not be verified against any source), or `user-override` (codebase / API contradicted the claim but the user overrode after seeing the contradiction).
+
+Examples:
+
+```
+### 2026-05-26 — context refresh
+- Testing: L1 → L2 (verified via .github/workflows/ci.yml)
+- Anti-patterns: removed "manual prod deploy" (user-reported)
+```
+
+```
+### 2026-05-26 — context refresh
+- Suggestion #2: superseded by new approach (user-override; codebase still shows old pattern)
+- Dependency map: edge from #2 → #5 removed (user-reported)
+```
+
+No global changelog file is written. Each file owns its own revision log.
 
 ---
 
 ## Quality Gate
 
-Before considering an update complete, verify:
+Apply this checklist per file the agent touched. If any item fails, do not declare done.
 
-- ✅ User-supplied context was decomposed into atomic claims and shown to the user for confirmation
-- ✅ Each claim was attempted-verified via the most authoritative source available
-- ✅ Any `CONTRADICTED` claim was surfaced to the user and their override recorded
-- ✅ File header has a new `Last revised` line; prior revisions pushed down (≤3 in header)
-- ✅ Each affected dimension has an `**After <date> context refresh:**` subsection in Detailed Findings
-- ✅ Capability matrix rows, anti-pattern rows, recommendations, and roadmap reflect the new context
-- ✅ No prior findings were silently deleted — downgrades are annotated in place
-- ✅ Bottom-of-file "Changes from previous report" has a new entry summarizing verification posture, per-claim outcomes, and deltas
-- ✅ No fresh API keys, secret values, full alert payloads, or PR content present in the report or agent memory
-- ✅ If `gh` or Octopus were skipped, the report explicitly states which sections reflect prior-vintage data
+- [ ] Each claim tagged for this file produced a corresponding edit in this file.
+- [ ] Multi-file claims propagated correctly — if this file got a level change, the other tagged file also got the corresponding edit.
+- [ ] No whole-file rewrites occurred — every change is a granular Edit.
+- [ ] A new entry was appended to this file's `## Revision history` if any edits landed.
+- [ ] No auth tokens, raw secret values, full alert payloads, or full PR bodies were written to this file or to agent memory.
+- [ ] Strengths to Protect (summary.md) and Anti-patterns Detected (summary.md) were re-checked if any dimension's level changed.
+
+A passed Quality Gate per touched file is required before Phase 6 entries are considered finalized.

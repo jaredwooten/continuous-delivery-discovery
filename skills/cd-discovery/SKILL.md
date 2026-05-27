@@ -1,7 +1,7 @@
 ---
 name: cd-discovery
 description: "Automated CI/CD pipeline discovery — scans codebase for deployment artifacts, interviews user about gaps, produces structured input for the continuous-delivery-strategist agent"
-argument-hint: "[--skip-interview] [--assess] [--update [<context-or-path>]] [--skip-github] [--octopus-url <url>] [--octopus-api-key <key>] [--octopus-space <id-or-name>] [--octopus-project <name>]"
+argument-hint: "[--skip-interview] [--suggest] [--update [<context-or-path>]] [--skip-github] [--octopus-url <url>] [--octopus-api-key <key>] [--octopus-space <id-or-name>] [--octopus-project <name>]"
 allowed-tools:
   - Read
   - Edit
@@ -16,7 +16,7 @@ Thin launcher that spawns the `continuous-delivery-strategist` agent to perform 
 
 Extract flags from `$ARGUMENTS`:
 - `--skip-interview` — skip the interactive gap interview; tag gaps with `[NEEDS CLARIFICATION]`
-- `--assess` — after writing CD-DISCOVERY.md, continue into a full assessment with improvement roadmap
+- `--suggest` — after writing `cd-discovery/summary.md` and `findings.md`, also write `cd-discovery/suggestions.md` with the suggestion-voice framing (resource, not prescription). If `summary.md` and `findings.md` already exist (no `suggestions.md` yet), generate `suggestions.md` only against the existing findings without re-scanning.
 - `--update [<context-or-path>]` — apply additional context to an existing `CD-DISCOVERY.md` instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
 - `--skip-github` — skip the GitHub sub-playbook even if the repo has a github.com remote and `gh` is authenticated. Falls back to env var `GH_DISCOVERY_SKIP=1` if set.
 - `--octopus-url <url>` — Octopus Deploy server URL (e.g. `https://octopus.internal`). Falls back to env var `OCTOPUS_URL` if omitted.
@@ -43,17 +43,52 @@ After parsing, resolve whether to run the GitHub sub-playbook:
 
 GitHub discovery requires no flags by default — if `gh` is authenticated and the repo is on GitHub, the sub-playbook runs automatically.
 
-## Check for Existing Report
+## Check for Existing Output
 
-Detect whether `CD-DISCOVERY.md` exists in the project root and route accordingly:
+Resolve existing-output state in this order. The first matching condition determines the dispatch path. State variables: `HAS_NEW_DIR` (cd-discovery/ directory exists with at least summary.md), `HAS_LEGACY_FILE` (CD-DISCOVERY.md exists at project root), `HAS_SUGGESTIONS` (cd-discovery/suggestions.md exists).
 
-- **If `--update` was passed and the file does NOT exist:** abort with "No CD-DISCOVERY.md found — run `/cd-discovery` first to generate the baseline, then re-run with `--update`."
-- **If `--update` was passed and the file exists:** skip the prompt below and proceed directly to the **Spawn the Update Agent** path with whatever inline context / file path the user supplied (or interactive capture if neither was supplied).
-- **If `--update` was NOT passed and the file exists:** show its modification date and ask via `AskUserQuestion` how to proceed. Offer three options:
-  1. **Overwrite** — drop the existing file and run a fresh discovery (the current behavior; continues to **Spawn the Agent** below).
-  2. **Update** — apply additional context to the existing report via `UPDATE-PLAYBOOK.md` (continues to **Spawn the Update Agent** below).
-  3. **Cancel** — exit without changes.
-- **If the file does not exist and `--update` was NOT passed:** proceed directly to **Spawn the Agent** for a fresh discovery.
+### Dispatch precedence
+
+If both `HAS_NEW_DIR` and `HAS_LEGACY_FILE` are true, the new directory wins — proceed as if only the directory existed. Print a one-line warning: "Stale `CD-DISCOVERY.md` detected alongside `cd-discovery/`. The new directory takes precedence. Remove the legacy file when convenient." Do not auto-delete the legacy file.
+
+### Workflow dispatch
+
+| Condition | `--update` flag? | `--suggest` flag? | Dispatch |
+|---|---|---|---|
+| Neither HAS_NEW_DIR nor HAS_LEGACY_FILE | — | no | **W1**: Spawn the agent for fresh discovery (writes summary + findings) |
+| Neither HAS_NEW_DIR nor HAS_LEGACY_FILE | — | yes | **W2**: Spawn the agent for fresh discovery + suggestions (writes all three) |
+| HAS_NEW_DIR, no HAS_SUGGESTIONS | no | yes | **W3**: Spawn the agent in `suggestions-only` mode — read existing findings, write `suggestions.md`. No re-scan. |
+| HAS_NEW_DIR, HAS_SUGGESTIONS | no | yes | **W4-scoped**: Show the existing-report prompt scoped to `suggestions.md` (overwrite / update / cancel). Overwrite regenerates `suggestions.md` only against existing findings. |
+| HAS_NEW_DIR | no | no | **W4**: Show the existing-report prompt (overwrite / update / cancel) against the whole directory. |
+| HAS_NEW_DIR | yes | — | Skip the prompt; spawn the update agent (see "Spawn the Update Agent" in this file). |
+| HAS_LEGACY_FILE, no HAS_NEW_DIR | yes | — | **Abort with**: "Legacy CD-DISCOVERY.md found but no cd-discovery/ directory. Run `/cd-discovery` (without `--update`) and choose Migrate, then re-run with `--update`." |
+| HAS_LEGACY_FILE, no HAS_NEW_DIR | no | — | **W5**: Show the legacy-detection prompt (migrate / fresh / cancel). See "Spawn the Migrate Agent" for the migrate path. |
+
+### W4 prompt (whole directory)
+
+Use AskUserQuestion with three options:
+
+1. **Overwrite** — discard `cd-discovery/` and run a fresh discovery (W1 or W2 based on `--suggest`).
+2. **Update** — run the update flow (Spawn the Update Agent) with the user's context applied to the directory as a whole.
+3. **Cancel** — exit without changes.
+
+Show the modification date of the most-recently-modified file in `cd-discovery/` so the user has freshness context.
+
+### W4-scoped prompt (suggestions only)
+
+Use AskUserQuestion with three options:
+
+1. **Regenerate suggestions** — discard `cd-discovery/suggestions.md`, regenerate it against existing findings (no re-scan). Summary and findings are untouched.
+2. **Update suggestions** — run the update flow scoped to `suggestions.md` with the user's context.
+3. **Cancel** — exit without changes.
+
+### W5 legacy-detection prompt
+
+Use AskUserQuestion with three options:
+
+1. **Migrate** — read `CD-DISCOVERY.md`, split into the new `cd-discovery/` layout, preserve content and revision history, remove the legacy file via `git rm`. If `--suggest` was passed, continue into suggestions generation against the migrated findings.
+2. **Fresh** — discard the legacy file (user retains it manually if they want), run W1 or W2.
+3. **Cancel** — exit without changes.
 
 ## Spawn the Agent
 

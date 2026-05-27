@@ -308,4 +308,4 @@ Before declaring the Octopus discovery complete, verify:
 - ✅ Manual intervention steps surfaced
 - ✅ Rollback story captured (runbook, redeploy, or "none")
 - ✅ Findings cross-referenced into the main capability matrix
-- ❌ No API key, secret value, or sensitive variable value present anywhere in `CD-DISCOVERY.md` or agent memory
+- ❌ No API key, secret value, or sensitive variable value present anywhere in the `cd-discovery/` output files (summary.md, findings.md, suggestions.md), in the weave map, or in agent memory

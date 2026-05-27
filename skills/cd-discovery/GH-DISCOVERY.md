@@ -352,4 +352,4 @@ Before declaring the GitHub sub-playbook complete:
 - ✅ Framing Rule applied — branch-protection findings interpreted with explicit reference to Observability/Testing/Deployment state
 - ✅ Artifact-provenance greps executed (cosign / SBOM / attestation, dependency cache coverage, install-command hygiene, build-once signals)
 - ✅ Artifact-centricity framing rule applied — when build-once-promote is in place it is named as a Strength to Protect with file:line evidence; when violated it is surfaced as a HIGH-severity Deployment Automation finding
-- ❌ **No** auth tokens, alert bodies, or PR content stored in `CD-DISCOVERY.md` or agent memory
+- ❌ **No** auth tokens, alert bodies, or PR content stored in the `cd-discovery/` output files (summary.md, findings.md, suggestions.md), in the weave map, or in agent memory

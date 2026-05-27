@@ -17,7 +17,7 @@ Thin launcher that spawns the `continuous-delivery-strategist` agent to perform 
 Extract flags from `$ARGUMENTS`:
 - `--skip-interview` — skip the interactive gap interview; tag gaps with `[NEEDS CLARIFICATION]`
 - `--suggest` — after writing `cd-discovery/summary.md` and `findings.md`, also write `cd-discovery/suggestions.md` with the suggestion-voice framing (resource, not prescription). If `summary.md` and `findings.md` already exist (no `suggestions.md` yet), generate `suggestions.md` only against the existing findings without re-scanning.
-- `--update [<context-or-path>]` — apply additional context to an existing `CD-DISCOVERY.md` instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
+- `--update [<context-or-path>]` — apply additional context to the existing `cd-discovery/` directory instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
 - `--skip-github` — skip the GitHub sub-playbook even if the repo has a github.com remote and `gh` is authenticated. Falls back to env var `GH_DISCOVERY_SKIP=1` if set.
 - `--octopus-url <url>` — Octopus Deploy server URL (e.g. `https://octopus.internal`). Falls back to env var `OCTOPUS_URL` if omitted.
 - `--octopus-api-key <key>` — Octopus API key (`API-...`). Falls back to env var `OCTOPUS_API_KEY` if omitted. **Never echo to terminal or report.**
@@ -207,8 +207,8 @@ Execute UPDATE-PLAYBOOK.md Phases 1 through 6 in order:
 - Phase 2: Capture user context (skip interactive step if inline string / file path supplied)
 - Phase 3: Decompose into atomic claims; show the list to the user for confirmation before proceeding
 - Phase 4: Targeted verification — re-run only the scan slices the user's claims touch; surface any CONTRADICTED claim to the user before editing
-- Phase 5: Edit CD-DISCOVERY.md in place using the Edit tool (granular edits only — no Write of the whole file)
-- Phase 6: Prepend a new "### <today> — context refresh" entry to the bottom "Changes from previous report" section
+- Phase 5: Edit the relevant file(s) under cd-discovery/ in place using the Edit tool (granular edits only — no Write of the whole file). Multi-file claims (e.g., a dimension level change) must touch both summary.md's matrix row AND findings.md's dimension section in the same pass.
+- Phase 6: Append a per-file "### <today> — context refresh" entry to each file's bottom "## Revision history" section. Files the agent did not touch get no entry today.
 
 Apply the Quality Gate at the end. Do not declare done if any item is unchecked.
 </execution>

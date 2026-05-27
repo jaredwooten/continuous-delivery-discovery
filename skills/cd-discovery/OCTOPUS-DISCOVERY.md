@@ -1,6 +1,6 @@
 # Octopus Deploy Discovery Sub-Playbook
 
-Use this sub-playbook when the repository is deployed via **Octopus Deploy** and the orchestrator is not visible from the codebase alone. It produces a structured snapshot of the Octopus side of the pipeline that gets folded into `CD-DISCOVERY.md` under the **Deployment Orchestrator** section.
+Use this sub-playbook when the repository is deployed via **Octopus Deploy** and the orchestrator is not visible from the codebase alone. It produces a **weave map** — a structured list of evidence items tagged with discovery tier and target dimension(s) — that gets folded into the `findings.md` file for the strategist to integrate into the capability matrix.
 
 The sub-playbook tries three sources in order. Stop at the first one that succeeds — do not double-collect.
 
@@ -252,78 +252,49 @@ Triggered when both Tier 1 and Tier 2 are unavailable. Ask via `AskUserQuestion`
 
 ---
 
-## Output: Octopus Findings Block
+## Output: Weave Map
 
-Regardless of tier, produce a structured finding block to be inserted into `CD-DISCOVERY.md` under a new **Deployment Orchestrator** section. Use this shape:
+This sub-playbook does **not** produce a self-contained "Deployment Orchestrator" section. Instead, output a **weave map** — a structured list of evidence items, each tagged with the target dimension(s) in `findings.md`. The strategist will drop each item into the relevant dimension section.
 
-```markdown
-### Deployment Orchestrator: Octopus Deploy
+### Weave-map format
 
-**Discovery tier:** {API | CaC | Questionnaire}
-**Confidence:** {HIGH | MED | LOW}
-**Server:** {hostname only — no path/key}
-**Space:** {space name + ID}
-**Project(s):** {project name + slug, one per line}
+Each line:
 
-**Lifecycle**
-- Phase order: dev → stage → prod
-- Auto-promote: dev (yes), stage (no — requires manual click), prod (no — requires manual click + approval)
-- Retention: 30 releases / 90 days
-
-**Deployment Process Summary**
-| Step | Action Type | Env Scope | Notes |
-|------|-------------|-----------|-------|
-| 1. Update ECS task | aws.ecs.UpdateService | all | rolling deploy |
-| 2. Run smoke tests | Octopus.Script | dev, stage | warns only — does not fail deploy |
-| 3. Manual: PM sign-off | Octopus.Manual | prod | required before step 4 |
-| 4. CloudFront invalidation | aws.cloudFront.Invalidate | all | |
-
-**DORA-style metrics (last 90 days, API tier only)**
-- Deploy frequency: prod 1.2/week, stage 4/week, dev 12/week
-- Change failure rate: 8% (4 of 50 prod deploys failed/rolled back)
-- Mean deploy duration: 6m 30s
-- MTTR proxy: 47 minutes median
-
-**Runbooks**
-- ✓ Rollback (manual trigger, all envs)
-- ✗ No DB maintenance runbook
-- ✗ No secret rotation runbook
-
-**Variables (schema only)**
-- 47 variables across the project
-- 12 sensitive (correctly flagged)
-- ⚠ 2 variables named `*Password` not flagged as sensitive: `LegacySmtpPassword`, `IntercomBackupKey`
-- 8 variables have per-env overrides → reasonable env separation
-
-**Notifications**
-- Deploy failures → #mi-portal-deploys Slack channel via webhook subscription
-- ✗ No PagerDuty integration
-
-**Findings**
-- [HIGH] Prod has manual approval but stage auto-promotes — confirm intent (file: lifecycle "Standard")
-- [MED] Smoke-test step warns only; broken deploys can complete (Step 2 — `Octopus.Action.FailOnError: false`)
-- [MED] Two non-flagged sensitive-shaped variables
-- [LOW] No DB maintenance runbook (may live elsewhere)
-
-**Gaps the orchestrator side reveals about the repo side**
-- Repo has no `/api/healthcheck/ready` — Step 2 smoke test is therefore non-meaningful even if it failed loudly
-- No GitHub commit-status report-back from Octopus → repo PRs can't see deploy status
+```
+{Dimension}: {octopus-resource reference} — {one-line finding} [evidence: Octopus {Tier 1 API | Tier 2 CaC | Tier 3 Questionnaire}, scanned {YYYY-MM-DD}]
 ```
 
-If using **Tier 3 (questionnaire)**, replace the metrics table with `[USER-REPORTED]` answers and lower confidence to `LOW`.
+Where `{Dimension}` is one of: `Build & CI`, `Testing`, `Deployment`, `Infrastructure as Code`, `Observability`, `Release Process`, `Security`.
 
----
+Most Octopus findings tag `Deployment`. Findings about manual lifecycle gates, approval phases, or release-coordination overhead tag `Release Process`. Findings about notification gaps or missing deploy markers tag `Observability`.
 
-## Cross-Stitch into Main Capability Matrix
+A finding that legitimately bears on multiple dimensions can appear on multiple lines, one per dimension. Do not invent dimension assignments.
 
-After producing the Octopus block, **revise the main 7-dimension scoring** in `CD-DISCOVERY.md` based on what was learned:
+### Example weave map
 
-- **Deployment Automation (L0-L4)** — biggest revision target. Lifecycle auto-promote rules are the answer to "is this L1, L2, L3, or L4?" Update the level estimate and confidence accordingly.
-- **Release Process** — channels + retention policy + deploy frequency reshape this score.
-- **Observability** — notification subscriptions and post-deploy verification feed this.
-- **Security** — variable hygiene (sensitive flag correctness) is a security finding.
+```
+Deployment: project `web-api`/step 3 "Deploy Web App" — uses immutable build tag from package.json, no per-env retag [evidence: Octopus Tier 1 API, scanned 2026-05-26] [strength-to-protect]
+Deployment: project `web-api` lifecycle `Standard` — Dev auto-promotes; Stage and Prod require manual approval [evidence: Octopus Tier 1 API, scanned 2026-05-26]
+Release Process: project `web-api`/Prod phase has 2 required approvers; no SLA on approval latency [evidence: Octopus Tier 1 API, scanned 2026-05-26]
+Observability: no Slack/Teams notification on prod deploy success or failure [evidence: Octopus Tier 1 API, scanned 2026-05-26]
+```
 
-Document the revision: in the Deployment dimension's `Detailed Findings` section, add an "After Octopus discovery" subsection that explicitly states the level changed from `Lx` to `Ly` and why.
+### Strengths-to-Protect tagging
+
+When a finding represents a load-bearing CD pattern the team is getting right (e.g., build-once-promote, immutable image tags, single-source artifact identity), append `[strength-to-protect]` to the line. The strategist will surface these in `summary.md` under Strengths to Protect rather than under the dimension's gap list.
+
+### Artifact-centricity framing rule (preserved from prior version)
+
+Build-once-promote-the-same-artifact is the load-bearing CD principle. When this sub-playbook finds it in place (single build per commit, immutable tag promoted unchanged through environments, deploy step reads the tag from the build rather than constructing it), emit the finding as a `Deployment` line with `[strength-to-protect]` tagged.
+
+When the discovery finds the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, emit a HIGH-severity `Deployment` line regardless of how green the rest of the pipeline looks.
+
+Build-once-with-config-swap-at-deploy (identical bundle, runtime config swapped) is acceptable but emit the line with an asterisk note in the finding text so future readers understand the nuance.
+
+### Authentication and sensitive-data rules (preserved)
+
+- Tier 1 API: pass `OCTOPUS_API_KEY` via environment variable; never echo to terminal, weave map, memory, or any report file.
+- Variable values, alert payloads, and sensitive identifiers must never appear in the weave map. Summary counts and named findings (e.g., "47 deployments to prod in last 90 days", "step 3 references variable `Database.ConnectionString`") are appropriate; raw values are not.
 
 ---
 

@@ -326,9 +326,9 @@ Flag these anti-patterns with file:line references:
 
 ---
 
-## Phase 3: Interactive Interview
+## Phase 3: Tag Gaps for Interview
 
-**Skip this phase if instructed to skip the interview.** Tag all gap items with `[NEEDS CLARIFICATION]` in the output instead.
+**You are a headless subagent.** You have no channel to interview the user directly — this is true regardless of `--skip-interview` or any other flag. Tag every gap item with `[NEEDS CLARIFICATION: <specific question>]`, embedding a concrete, evidence-grounded question directly in the tag (see 3.2's good/bad examples for the bar), so a human reader — or the top-level orchestrator that spawned you — can ask it verbatim later. Do not attempt to use `AskUserQuestion`.
 
 ### 3.1 Present Summary
 
@@ -352,11 +352,9 @@ Example format:
 ...
 ```
 
-Use `AskUserQuestion` to ask which dimensions the user wants to discuss. Offer options for each dimension plus "all" and "none (write report as-is)".
+### 3.2 Write Targeted Questions Into Tags
 
-### 3.2 Deep-Dive Selected Dimensions
-
-For each selected dimension, ask the targeted questions generated in Phase 2. Limit to 2-3 questions per dimension to avoid interview fatigue.
+For each gap, write one specific, targeted question (2-3 per dimension max) directly into its `[NEEDS CLARIFICATION: ...]` tag.
 
 Questions must be specific to what was found, not generic.
 
@@ -369,11 +367,9 @@ Bad:
 - "How do you handle testing?"
 - "Tell me about your deployment process"
 
-Record all answers for inclusion in the output.
+### 3.3 Revision Happens Later
 
-### 3.3 Revise Assessments
-
-After the interview, revise level estimates and confidence scores based on user answers. Gaps may be filled (raising confidence), or user answers may reveal new concerns.
+Revision of level estimates and confidence scores based on user answers happens later, in the top-level orchestrator's fold-in step (the Update Agent path) — not in this subagent invocation.
 
 ---
 
@@ -425,7 +421,7 @@ Before considering discovery complete, verify:
 - If the repo has a GitHub remote, the GitHub sub-playbook ran (`GH-DISCOVERY.md`) OR was explicitly skipped via `--skip-github`
 - Findings mapped to 7 dimensions with L0-L4 level estimates
 - Anti-patterns detected and flagged with file:line references
-- User interviewed about gaps (unless skip-interview mode)
+- Every gap tagged `[NEEDS CLARIFICATION: <specific question>]` — the interview itself happens later, at the top-level orchestrator, never inside this subagent invocation
 - `cd-discovery/summary.md` and `cd-discovery/findings.md` written to project root with populated capability matrix and per-dimension sections
 - Sub-playbook evidence (GitHub and Octopus) woven into the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
 - `cd-discovery/suggestions.md` written when `--suggest` is in scope

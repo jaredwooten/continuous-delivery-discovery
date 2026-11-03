@@ -326,9 +326,9 @@ Flag these anti-patterns with file:line references:
 
 ---
 
-## Phase 3: Interactive Interview
+## Phase 3: Tag Gaps for Interview
 
-**Skip this phase if instructed to skip the interview.** Tag all gap items with `[NEEDS CLARIFICATION]` in the output instead.
+**Headless:** never ask the user directly. Tag every gap `[NEEDS CLARIFICATION: <specific question>]` (see 3.2 for the bar); the launcher asks them later.
 
 ### 3.1 Present Summary
 
@@ -352,11 +352,9 @@ Example format:
 ...
 ```
 
-Use `AskUserQuestion` to ask which dimensions the user wants to discuss. Offer options for each dimension plus "all" and "none (write report as-is)".
+### 3.2 Write Targeted Questions Into Tags
 
-### 3.2 Deep-Dive Selected Dimensions
-
-For each selected dimension, ask the targeted questions generated in Phase 2. Limit to 2-3 questions per dimension to avoid interview fatigue.
+For each gap, write one specific, targeted question (2-3 per dimension max) directly into its `[NEEDS CLARIFICATION: ...]` tag.
 
 Questions must be specific to what was found, not generic.
 
@@ -369,11 +367,9 @@ Bad:
 - "How do you handle testing?"
 - "Tell me about your deployment process"
 
-Record all answers for inclusion in the output.
+### 3.3 Revision Happens Later
 
-### 3.3 Revise Assessments
-
-After the interview, revise level estimates and confidence scores based on user answers. Gaps may be filled (raising confidence), or user answers may reveal new concerns.
+Revision of level estimates and confidence scores based on user answers happens later, in the top-level orchestrator's fold-in step (the Update Agent path) — not in this subagent invocation.
 
 ---
 
@@ -417,6 +413,15 @@ Build-once-promote-the-same-artifact is the load-bearing CD principle. When the 
 
 ---
 
+## Claim Precision Rules
+
+Reviewers check claims against the repo and platform docs; overclaims cost more than omissions. Before writing Strengths to Protect, Anti-Patterns, and suggestions:
+
+1. **Enumerate before generalizing.** List every instance (each required workflow, environment, deploy path) and check each. One exception turns a strength into a scoped strength plus a gap.
+2. **Verify the mechanism, not the description.** Comments, docs, and memory of platform behavior (Actions concurrency, ALB/ECS health, Dependabot limits, rulesets) are claims. Confirm from the code, vendor docs, or live API, or tag `[UNVERIFIED-SEMANTICS]`.
+3. **Read what a suggestion depends on.** Check how a referenced data source is written (latching, scope, expiry) and what a referenced workflow actually runs before recommending it.
+4. **Test "closes the gap" claims against bypass paths.** For any control (rulesets, required checks, OIDC trust), list how it can still be sidestepped and scope the claim to what it covers.
+
 ## Quality Gate
 
 Before considering discovery complete, verify:
@@ -425,7 +430,7 @@ Before considering discovery complete, verify:
 - If the repo has a GitHub remote, the GitHub sub-playbook ran (`GH-DISCOVERY.md`) OR was explicitly skipped via `--skip-github`
 - Findings mapped to 7 dimensions with L0-L4 level estimates
 - Anti-patterns detected and flagged with file:line references
-- User interviewed about gaps (unless skip-interview mode)
+- Every gap tagged `[NEEDS CLARIFICATION: <specific question>]`
 - `cd-discovery/summary.md` and `cd-discovery/findings.md` written to project root with populated capability matrix and per-dimension sections
 - Sub-playbook evidence (GitHub and Octopus) woven into the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
 - `cd-discovery/suggestions.md` written when `--suggest` is in scope
@@ -433,6 +438,7 @@ Before considering discovery complete, verify:
 - **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect in `summary.md` with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding in `findings.md` regardless of how green the rest of the pipeline looks
 - **Strengths to Protect section populated**: at least one entry per pipeline that has *anything* working — an empty section means the report is incomplete
 - Every finding backed by evidence (file paths) or tagged as [MISSING]
+- **Claim Precision Rules applied** (see above) to every strength and suggestion
 - No API keys, auth tokens, sensitive variable values, or full alert/PR payloads present in the output files or agent memory
 
 ---

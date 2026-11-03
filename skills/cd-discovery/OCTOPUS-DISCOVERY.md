@@ -220,7 +220,7 @@ Note that CaC files give you the **defined** state but not the **observed** stat
 
 ## Tier 3: Structured Questionnaire (Fallback)
 
-Triggered when both Tier 1 and Tier 2 are unavailable. Ask via `AskUserQuestion`. Group into batches of 3-4 to avoid fatigue. Tag every answer with `[USER-REPORTED]` in the report so confidence is visible.
+Triggered when both Tier 1 and Tier 2 are unavailable. The launcher (the `cd-discovery` skill) asks these via `AskUserQuestion` before spawning the agent, in batches of 3-4, and passes the answers in. A headless agent never asks them; with no answers supplied, tag the gaps `[NEEDS CLARIFICATION]`. Tag every answer with `[USER-REPORTED]` in the report so confidence is visible.
 
 ### Batch A — Project & Lifecycle
 

@@ -15,7 +15,7 @@ Thin launcher that spawns the `continuous-delivery-strategist` agent to perform 
 ## Parse Arguments
 
 Extract flags from `$ARGUMENTS`:
-- `--skip-interview` — skip the interactive gap interview; tag gaps with `[NEEDS CLARIFICATION]`
+- `--skip-interview` — skip the post-scan interview step; leave gaps tagged `[NEEDS CLARIFICATION]` in `findings.md`
 - `--suggest` — after writing `cd-discovery/summary.md` and `findings.md`, also write `cd-discovery/suggestions.md` with the suggestion-voice framing (resource, not prescription). If `summary.md` and `findings.md` already exist (no `suggestions.md` yet), generate `suggestions.md` only against the existing findings without re-scanning.
 - `--update [<context-or-path>]` — apply additional context to the existing `cd-discovery/` directory instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
 - `--skip-github` — skip the GitHub sub-playbook even if the repo has a github.com remote and `gh` is authenticated. Falls back to env var `GH_DISCOVERY_SKIP=1` if set.
@@ -28,18 +28,20 @@ Extract flags from `$ARGUMENTS`:
 
 After parsing, resolve which Octopus discovery tier to run:
 - **Tier 1 (API)** — if both URL and API key are present (flag or env var). The agent will use them via curl with `X-Octopus-ApiKey` headers.
-- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or asks the user for a CaC repo path.
-- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the agent asks the user a structured set of questions via `AskUserQuestion`.
+- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or uses a CaC repo path the launcher obtained from the user before spawning.
+- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the launcher asks the user the structured questions via `AskUserQuestion` before spawning, and passes the answers to the agent.
 - **Skip** — if the user provides `--octopus-url=none` or answers "we don't use Octopus" when asked, skip the sub-playbook entirely.
 
-If no Octopus inputs are provided and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
+Before asking, check for a retirement or migration doc (e.g. `docs/**/octopus-retirement*`). If the repo documents Octopus as retired, skip the sub-playbook and cite that doc.
+
+If no Octopus inputs are provided, no retirement doc was found, and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
 
 ### Resolve GitHub mode
 
 After parsing, resolve whether to run the GitHub sub-playbook:
 1. Detect a GitHub remote: `git remote -v | grep -qE 'github\.com[:/]'`. If no GitHub remote, skip — no section in the output.
 2. If `--skip-github` (or `GH_DISCOVERY_SKIP=1`) is set, skip — tag the section `[SKIPPED by user]`.
-3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → either prompt the user to run `gh auth login` or fall back to **Tier 2** (questionnaire) per the sub-playbook.
+3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → the launcher either prompts the user to run `gh auth login` or runs the **Tier 2** questionnaire per the sub-playbook, before spawning.
 
 GitHub discovery requires no flags by default — if `gh` is authenticated and the repo is on GitHub, the sub-playbook runs automatically.
 
@@ -76,11 +78,12 @@ Show the modification date of the most-recently-modified file in `cd-discovery/`
 
 ### W4-scoped prompt (suggestions only)
 
-Use AskUserQuestion with three options:
+Use AskUserQuestion with four options:
 
 1. **Regenerate suggestions** — discard `cd-discovery/suggestions.md`, regenerate it against existing findings (no re-scan). Summary and findings are untouched.
 2. **Update suggestions** — run the update flow scoped to `suggestions.md` with the user's context.
-3. **Cancel** — exit without changes.
+3. **Regenerate all** — discard the whole `cd-discovery/` directory and run a fresh discovery with suggestions (W2). Use when findings are stale too.
+4. **Cancel** — exit without changes.
 
 ### W5 legacy-detection prompt
 
@@ -108,8 +111,7 @@ Additionally write:
 
 The suggestions file uses the suggestion voice: lead with tradeoffs (gap → what improving unlocks → cost/disruption), not directives. Express sequence as a dependency map; engineers own sequencing. No time-duration estimates. Do not use the word "roadmap."
 
-{If --skip-interview: "Skip the interactive interview. Tag all gaps with [NEEDS CLARIFICATION] instead."}
-{If NOT --skip-interview: "After scanning, present a summary and interview the user about gaps using AskUserQuestion."}
+You are being spawned as a headless subagent for automated discovery — you have no channel back to the user. Do not call AskUserQuestion. Tag every gap per Phase 3 of the playbook, with a specific, targeted question embedded directly in each [NEEDS CLARIFICATION: ...] tag.
 
 {If incremental suggest (W3): "Do NOT re-scan. Read the existing cd-discovery/summary.md and findings.md and write only cd-discovery/suggestions.md against the existing findings."}
 </objective>
@@ -134,7 +136,7 @@ Read these files before starting:
 {Elif Tier 2 candidate:}
   No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md to produce a weave map.
 {Elif Tier 3 fallback:}
-  No Octopus credentials or CaC found. Ask the user once whether this repo is deployed via Octopus. If yes, run the Tier 3 questionnaire from OCTOPUS-DISCOVERY.md and produce a weave map. If no, skip the Octopus sub-playbook.
+  No Octopus credentials or CaC found. The launcher has already asked the user whether this repo is deployed via Octopus. Questionnaire answers (tagged [USER-REPORTED]) are supplied below; use them with Tier 3 of OCTOPUS-DISCOVERY.md to produce a weave map. If none were supplied, tag the Octopus gaps [NEEDS CLARIFICATION].
 {Elif user opted out:}
   User has indicated this repo does not use Octopus. Do not run the Octopus sub-playbook.
 </octopus_inputs>
@@ -145,7 +147,7 @@ Read these files before starting:
 {Elif repo has a github.com remote AND --skip-github:}
   Skip the GitHub sub-playbook. Do not write GitHub evidence to the findings.
 {Elif repo has a github.com remote AND gh is unauthenticated:}
-  Note that gh is not authenticated. Either prompt the user to run `gh auth login` (then resume Tier 1 to produce a weave map) or fall back to Tier 2 (questionnaire) from GH-DISCOVERY.md to produce a weave map.
+  gh is not authenticated and the launcher has handled it: either Tier 2 questionnaire answers (tagged [USER-REPORTED]) are supplied below, or none were and the GitHub gaps stay tagged [NEEDS CLARIFICATION]. Do not prompt the user.
 {Else (no github.com remote):}
   Skip the GitHub sub-playbook silently — not applicable.
 </github_inputs>
@@ -164,13 +166,35 @@ When the GitHub sub-playbook surfaces missing branch protection or missing requi
 
 When invoking the agent's bash steps for Tier 1, pass the API key via the environment, e.g. `env OCTOPUS_API_KEY=$KEY curl -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" ...`. Never pass it as a CLI argument that would land in shell history or process listings.
 
+## Interview Gaps
+
+Runs after the fresh-discovery agent (W1/W2) returns and `cd-discovery/findings.md` has been written, before Report Completion. The subagent never calls `AskUserQuestion` itself (see "Spawn the Agent" above) — this step is where the interview actually happens, at the top level.
+
+**Write fallback:** if the agent reports it could not write the report files (some harnesses block subagent writes to report paths), it returns the full content of each file in its final message. The launcher then verifies the content is complete, un-escapes any HTML entities (`&gt;`, `&lt;`, `&amp;`), and writes the files itself before continuing. Do not re-spawn the agent just to retry the write.
+
+1. If `--skip-interview` was passed: skip this section entirely. Report completion with gap count only (tags remain in place).
+2. Read `cd-discovery/findings.md` and locate every `[NEEDS CLARIFICATION: <question>]` tag, grouped by the dimension section it appears under.
+3. If none found: skip to Report Completion.
+4. Otherwise, present the dimension-by-dimension summary (level, key findings, gap count per dimension) and use `AskUserQuestion` to ask which dimensions the user wants to discuss: options are each dimension with gaps, plus "all" and "none (leave tagged)".
+5. If the user picks "none": skip to Report Completion with tags left in place.
+6. For each selected dimension, ask its extracted targeted question(s) via `AskUserQuestion` (2-3 per dimension, batched into as few calls as the tool allows). `AskUserQuestion` takes at most 4 questions per call, so merge related gaps into themed questions. An answer of "unknown" or "don't recall" does NOT resolve a gap: leave that `[NEEDS CLARIFICATION]` tag in place and exclude it from the assembled context.
+7. Assemble every question+answer pair into a single context string, one entry per resolved gap:
+   ```
+   Dimension: <name>
+   Q: <the [NEEDS CLARIFICATION] question text>
+   A: <user's answer>
+   ```
+8. Automatically invoke "Spawn the Update Agent" (below) using this assembled string as the `INLINE` context — do not prompt the user again for `--update`-style context; this *is* that context.
+
 ## Spawn the Update Agent
 
-Used when the user chose **Update** (either by `--update` flag or by the existing-report prompt). Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuous-delivery-strategist"` and the following prompt structure:
+Used when the user chose **Update** (either by `--update` flag or by the existing-report prompt), or when the "Interview Gaps" step above auto-invokes it with interview answers. Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuous-delivery-strategist"` and the following prompt structure:
 
 ```
 <objective>
 Update the existing cd-discovery/ directory by folding in additional context the user has supplied. Each claim must be tagged with the file(s) it touches ([summary], [findings], [suggestions], or multi-tag). Multi-file claims (e.g., a dimension level change) must edit both the matrix row in summary.md AND the per-dimension section in findings.md in the same pass. Verify every claim that can be verified against the codebase or live APIs (gh CLI, Octopus REST API); tag the rest [USER-REPORTED] and lower confidence accordingly. Edit each file in place using granular Edit calls — preserve the audit trail by reframing prior findings rather than deleting them. Append a per-file revision log entry to each file the agent touched.
+
+{If auto-invoked from the post-scan Interview Gaps step:} This context is answers from the interview immediately following a fresh discovery. Resolve each matching [NEEDS CLARIFICATION] tag directly — replace it with the resolved finding and revised level/confidence. Tags with no matching answer stay as [NEEDS CLARIFICATION].
 </objective>
 
 <required_reading>
@@ -283,6 +307,7 @@ After the agent returns:
 - If `--suggest` was set: the agent will have produced all three files. Display the summary.
 - If Octopus discovery ran, mention which tier was used (API / CaC / Questionnaire) so the user understands the confidence level.
 - If GitHub discovery ran, mention which tier was used (Tier 1 / Tier 2) and which `gh` identity was authenticated.
+- If the Interview Gaps step ran: report how many gaps were found, how many were resolved via interview, and how many remain `[NEEDS CLARIFICATION]`. Remind the user to `git diff cd-discovery/` before committing, same as the Update path.
 
 **Update path:**
 - Display a 3-5 line summary: which dimensions had level/confidence changes, how many claims verified vs. user-reported, whether GitHub / Octopus were re-scanned this pass, and the location of the new bottom-of-file revision entry.

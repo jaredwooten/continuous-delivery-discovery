@@ -328,7 +328,7 @@ Flag these anti-patterns with file:line references:
 
 ## Phase 3: Tag Gaps for Interview
 
-**You are a headless subagent.** You have no channel to interview the user directly — this is true regardless of `--skip-interview` or any other flag. Tag every gap item with `[NEEDS CLARIFICATION: <specific question>]`, embedding a concrete, evidence-grounded question directly in the tag (see 3.2's good/bad examples for the bar), so a human reader — or the top-level orchestrator that spawned you — can ask it verbatim later. Do not attempt to use `AskUserQuestion`.
+**Headless:** never ask the user directly. Tag every gap `[NEEDS CLARIFICATION: <specific question>]` (see 3.2 for the bar); the launcher asks them later.
 
 ### 3.1 Present Summary
 
@@ -413,6 +413,15 @@ Build-once-promote-the-same-artifact is the load-bearing CD principle. When the 
 
 ---
 
+## Claim Precision Rules
+
+Reviewers check claims against the repo and platform docs; overclaims cost more than omissions. Before writing Strengths to Protect, Anti-Patterns, and suggestions:
+
+1. **Enumerate before generalizing.** List every instance (each required workflow, environment, deploy path) and check each. One exception turns a strength into a scoped strength plus a gap.
+2. **Verify the mechanism, not the description.** Comments, docs, and memory of platform behavior (Actions concurrency, ALB/ECS health, Dependabot limits, rulesets) are claims. Confirm from the code, vendor docs, or live API, or tag `[UNVERIFIED-SEMANTICS]`.
+3. **Read what a suggestion depends on.** Check how a referenced data source is written (latching, scope, expiry) and what a referenced workflow actually runs before recommending it.
+4. **Test "closes the gap" claims against bypass paths.** For any control (rulesets, required checks, OIDC trust), list how it can still be sidestepped and scope the claim to what it covers.
+
 ## Quality Gate
 
 Before considering discovery complete, verify:
@@ -421,7 +430,7 @@ Before considering discovery complete, verify:
 - If the repo has a GitHub remote, the GitHub sub-playbook ran (`GH-DISCOVERY.md`) OR was explicitly skipped via `--skip-github`
 - Findings mapped to 7 dimensions with L0-L4 level estimates
 - Anti-patterns detected and flagged with file:line references
-- Every gap tagged `[NEEDS CLARIFICATION: <specific question>]` — the interview itself happens later, at the top-level orchestrator, never inside this subagent invocation
+- Every gap tagged `[NEEDS CLARIFICATION: <specific question>]`
 - `cd-discovery/summary.md` and `cd-discovery/findings.md` written to project root with populated capability matrix and per-dimension sections
 - Sub-playbook evidence (GitHub and Octopus) woven into the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
 - `cd-discovery/suggestions.md` written when `--suggest` is in scope
@@ -429,6 +438,7 @@ Before considering discovery complete, verify:
 - **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect in `summary.md` with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding in `findings.md` regardless of how green the rest of the pipeline looks
 - **Strengths to Protect section populated**: at least one entry per pipeline that has *anything* working — an empty section means the report is incomplete
 - Every finding backed by evidence (file paths) or tagged as [MISSING]
+- **Claim Precision Rules applied** (see above) to every strength and suggestion
 - No API keys, auth tokens, sensitive variable values, or full alert/PR payloads present in the output files or agent memory
 
 ---

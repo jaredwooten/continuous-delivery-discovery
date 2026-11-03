@@ -28,18 +28,20 @@ Extract flags from `$ARGUMENTS`:
 
 After parsing, resolve which Octopus discovery tier to run:
 - **Tier 1 (API)** — if both URL and API key are present (flag or env var). The agent will use them via curl with `X-Octopus-ApiKey` headers.
-- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or asks the user for a CaC repo path.
-- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the agent asks the user a structured set of questions via `AskUserQuestion`.
+- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or uses a CaC repo path the launcher obtained from the user before spawning.
+- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the launcher asks the user the structured questions via `AskUserQuestion` before spawning, and passes the answers to the agent.
 - **Skip** — if the user provides `--octopus-url=none` or answers "we don't use Octopus" when asked, skip the sub-playbook entirely.
 
-If no Octopus inputs are provided and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
+Before asking, check for a retirement or migration doc (e.g. `docs/**/octopus-retirement*`). If the repo documents Octopus as retired, skip the sub-playbook and cite that doc.
+
+If no Octopus inputs are provided, no retirement doc was found, and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
 
 ### Resolve GitHub mode
 
 After parsing, resolve whether to run the GitHub sub-playbook:
 1. Detect a GitHub remote: `git remote -v | grep -qE 'github\.com[:/]'`. If no GitHub remote, skip — no section in the output.
 2. If `--skip-github` (or `GH_DISCOVERY_SKIP=1`) is set, skip — tag the section `[SKIPPED by user]`.
-3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → either prompt the user to run `gh auth login` or fall back to **Tier 2** (questionnaire) per the sub-playbook.
+3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → the launcher either prompts the user to run `gh auth login` or runs the **Tier 2** questionnaire per the sub-playbook, before spawning.
 
 GitHub discovery requires no flags by default — if `gh` is authenticated and the repo is on GitHub, the sub-playbook runs automatically.
 
@@ -76,11 +78,12 @@ Show the modification date of the most-recently-modified file in `cd-discovery/`
 
 ### W4-scoped prompt (suggestions only)
 
-Use AskUserQuestion with three options:
+Use AskUserQuestion with four options:
 
 1. **Regenerate suggestions** — discard `cd-discovery/suggestions.md`, regenerate it against existing findings (no re-scan). Summary and findings are untouched.
 2. **Update suggestions** — run the update flow scoped to `suggestions.md` with the user's context.
-3. **Cancel** — exit without changes.
+3. **Regenerate all** — discard the whole `cd-discovery/` directory and run a fresh discovery with suggestions (W2). Use when findings are stale too.
+4. **Cancel** — exit without changes.
 
 ### W5 legacy-detection prompt
 
@@ -133,7 +136,7 @@ Read these files before starting:
 {Elif Tier 2 candidate:}
   No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md to produce a weave map.
 {Elif Tier 3 fallback:}
-  No Octopus credentials or CaC found. Ask the user once whether this repo is deployed via Octopus. If yes, run the Tier 3 questionnaire from OCTOPUS-DISCOVERY.md and produce a weave map. If no, skip the Octopus sub-playbook.
+  No Octopus credentials or CaC found. The launcher has already asked the user whether this repo is deployed via Octopus. Questionnaire answers (tagged [USER-REPORTED]) are supplied below; use them with Tier 3 of OCTOPUS-DISCOVERY.md to produce a weave map. If none were supplied, tag the Octopus gaps [NEEDS CLARIFICATION].
 {Elif user opted out:}
   User has indicated this repo does not use Octopus. Do not run the Octopus sub-playbook.
 </octopus_inputs>
@@ -144,7 +147,7 @@ Read these files before starting:
 {Elif repo has a github.com remote AND --skip-github:}
   Skip the GitHub sub-playbook. Do not write GitHub evidence to the findings.
 {Elif repo has a github.com remote AND gh is unauthenticated:}
-  Note that gh is not authenticated. Either prompt the user to run `gh auth login` (then resume Tier 1 to produce a weave map) or fall back to Tier 2 (questionnaire) from GH-DISCOVERY.md to produce a weave map.
+  gh is not authenticated and the launcher has handled it: either Tier 2 questionnaire answers (tagged [USER-REPORTED]) are supplied below, or none were and the GitHub gaps stay tagged [NEEDS CLARIFICATION]. Do not prompt the user.
 {Else (no github.com remote):}
   Skip the GitHub sub-playbook silently — not applicable.
 </github_inputs>
@@ -167,12 +170,14 @@ When invoking the agent's bash steps for Tier 1, pass the API key via the enviro
 
 Runs after the fresh-discovery agent (W1/W2) returns and `cd-discovery/findings.md` has been written, before Report Completion. The subagent never calls `AskUserQuestion` itself (see "Spawn the Agent" above) — this step is where the interview actually happens, at the top level.
 
+**Write fallback:** if the agent reports it could not write the report files (some harnesses block subagent writes to report paths), it returns the full content of each file in its final message. The launcher then verifies the content is complete, un-escapes any HTML entities (`&gt;`, `&lt;`, `&amp;`), and writes the files itself before continuing. Do not re-spawn the agent just to retry the write.
+
 1. If `--skip-interview` was passed: skip this section entirely. Report completion with gap count only (tags remain in place).
 2. Read `cd-discovery/findings.md` and locate every `[NEEDS CLARIFICATION: <question>]` tag, grouped by the dimension section it appears under.
 3. If none found: skip to Report Completion.
 4. Otherwise, present the dimension-by-dimension summary (level, key findings, gap count per dimension) and use `AskUserQuestion` to ask which dimensions the user wants to discuss: options are each dimension with gaps, plus "all" and "none (leave tagged)".
 5. If the user picks "none": skip to Report Completion with tags left in place.
-6. For each selected dimension, ask its extracted targeted question(s) via `AskUserQuestion` (2-3 per dimension, batched into as few calls as the tool allows).
+6. For each selected dimension, ask its extracted targeted question(s) via `AskUserQuestion` (2-3 per dimension, batched into as few calls as the tool allows). `AskUserQuestion` takes at most 4 questions per call, so merge related gaps into themed questions. An answer of "unknown" or "don't recall" does NOT resolve a gap: leave that `[NEEDS CLARIFICATION]` tag in place and exclude it from the assembled context.
 7. Assemble every question+answer pair into a single context string, one entry per resolved gap:
    ```
    Dimension: <name>

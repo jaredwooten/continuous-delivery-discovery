@@ -233,7 +233,7 @@ Feed all output into the §1.13 PLAYBOOK output and into the Security + Deployme
 
 ## Tier 2: Structured Questionnaire
 
-Triggered when `gh` is unavailable, unauthenticated, or the user opts out of Tier 1 but still wants the section populated. Ask via `AskUserQuestion` in batches of 3-4. Tag every answer with `[USER-REPORTED]` and set confidence to `LOW`.
+Triggered when `gh` is unavailable, unauthenticated, or the user opts out of Tier 1 but still wants the section populated. The launcher (the `cd-discovery` skill) asks these via `AskUserQuestion` before spawning the agent, in batches of 3-4, and passes the answers in. A headless agent never asks them; with no answers supplied, tag the gaps `[NEEDS CLARIFICATION]`. Tag every answer with `[USER-REPORTED]` and set confidence to `LOW`.
 
 ### Batch A — Gating
 

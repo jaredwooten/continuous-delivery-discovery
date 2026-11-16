@@ -56,7 +56,7 @@ Otherwise:
    - "It's in a file — I'll give you the path"
    - "Cancel"
 2. After capturing the raw context, ask **one** batch of up to 4 clarifying questions:
-   - Which dimensions does this touch? (multi-select: Build & CI / Testing / Deployment / IaC / Observability / Release Process / Security / Deployment Orchestrator / GitHub Posture)
+   - Which dimensions does this touch? (multi-select: Build & CI / Testing / Deployment / IaC / Observability / Release Process / Security / external deployment evidence / GitHub evidence woven into dimensions)
    - Is any claim time-sensitive — should I record a specific date in the revision header?
    - Should I downgrade or remove any current findings explicitly, or only add new context?
    - Is fresh `gh` auth or a current Octopus API key available so I can re-verify?

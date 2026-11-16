@@ -8,6 +8,16 @@ Execute this playbook to scan a repository for CI/CD and deployment artifacts, a
 
 Scan the repository for CI/CD and deployment artifacts across 10 categories. Accumulate findings in memory — do not write files yet.
 
+### Evidence ownership and optional specialists
+
+The `continuous-delivery-strategist` remains the primary orchestrator and owns the full scan, shared preflight/API collection, interviews, all seven cross-domain dimension assessments, L0-L4 and severity scoring, prioritization, synthesis, and report writing. Specialists are optional evidence reviewers, not default workers; use them only when a relevant path or specific question makes their bounded review worthwhile, and skip them for narrow tasks/small scans where overhead exceeds benefit. Read `EVIDENCE-LEDGER.md` before delegation and follow its record and reconciliation contract. Pass only sanitized, relevant evidence and scope, never credentials or secret values.
+
+- **CI/artifact (`ci-artifact-integrity`):** relevant evidence in §1.1 CI configuration, §1.4 build/package, §1.9 testing and CI gates, and §1.13 artifact identity through the producer-to-release handoff. The strategist still performs the playbook scan and assesses findings. CI owns producer-side artifact identity and the handoff reference.
+- **Release/deployment (`release-safety-recovery`):** post-handoff evidence in deployment strategy (§1.2), deployment scripts (§1.6), feature flags only when used as release controls (§1.8), release management (§1.10), and external orchestrator/deployment controls (§1.11, including relevant Octopus evidence). Release owns controls after artifact handoff and references the CI-owned handoff record rather than duplicating it.
+- **Observed metrics (`delivery-metrics-flow`):** only actual, time-bounded outcome/flow evidence, including relevant observed workflow or PR records from §1.12 when the window and population are explicit, or an explicit user request with defensible scope. The strategist performs shared API/preflight collection once and may pass a sanitized, bounded evidence set for analysis. Configuration alone is not metric evidence.
+
+These mappings identify specialist evidence boundaries, not ownership of whole scan categories or report dimensions. The strategist retains cross-domain interpretation and synthesis, including IaC, general observability, security, GitHub posture, and any evidence that spans boundaries. Workers return validated ledger records only; they do not interview, assess or score, prioritize, recommend, or write reports. Validate required fields, scope/status/confidence/source/limitations, stable prefixes, duplicates, and conflicts; retain specialist evidence IDs in findings and reconcile overlapping claims under one canonical ID and owner.
+
 ### 1.1 Detect CI Platform
 
 Glob for pipeline config files to determine the primary CI platform:
@@ -190,7 +200,7 @@ argocd app sync
 harness/connect, harness-cli
 ```
 
-If the orchestrator is **Octopus Deploy**, treat it as a first-class discovery target and run the dedicated sub-playbook at `~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md`. The launcher (`SKILL.md`) decides which tier to run (API / CaC / Questionnaire) based on whether `--octopus-url` and `--octopus-api-key` (or their env vars) are set. The sub-playbook produces a **Deployment Orchestrator** section in the report and feeds revisions back into the main capability matrix — particularly Deployment Automation, Release Process, and Observability levels.
+If the orchestrator is **Octopus Deploy**, treat it as a first-class discovery target and run the dedicated sub-playbook at `~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md`. The launcher (`SKILL.md`) decides which tier to run (API / CaC / Questionnaire) based on whether `--octopus-url` and `--octopus-api-key` (or their env vars) are set. The sub-playbook produces a weave map that is integrated into the relevant dimension findings and cross-domain capability assessments — particularly Deployment Automation, Release Process, and Observability. Do not create a standalone "Deployment Orchestrator" report section.
 
 For other orchestrators, capture artifact handoff (which CI step publishes which package/manifest to which orchestrator), tag the gap as `[NEEDS CLARIFICATION: orchestrator outside repo]`, and surface it as a question in Phase 3.
 
@@ -207,7 +217,7 @@ The sub-playbook covers what is **not visible from the codebase scan alone**:
 - Default `GITHUB_TOKEN` workflow permissions
 - CODEOWNERS presence
 
-The sub-playbook produces a **GitHub Repository Posture** section in the report and feeds revisions back into the main capability matrix — particularly Build & CI, Testing, Security, and Release Process.
+The sub-playbook produces a weave map that is integrated into relevant dimension findings and cross-domain capability assessments — particularly Build & CI, Testing, Security, and Release Process. Do not create a standalone "GitHub Repository Posture" report section.
 
 **Framing rule** (must propagate into both the report and the agent's reasoning): *missing branch protection on a default branch is only a finding when feedback loops are weak elsewhere.* Trunk-based development legitimately commits directly to main. Before downgrading Build & CI on branch-protection state, survey Observability, Testing, and Deployment Automation; severity emerges from the combination, not from the bare branch-protection state.
 

@@ -4,6 +4,8 @@ Use this sub-playbook when the repository is deployed via **Octopus Deploy** and
 
 The sub-playbook tries three sources in order. Stop at the first one that succeeds — do not double-collect.
 
+This remains the single Octopus collection protocol. The strategist collects each applicable API resource or CaC/questionnaire fact once, then may route sanitized relevant evidence and source identifiers to optional evidence-only agents. Specialists do not repeat API queries or broaden collection. Continue to produce the existing weave map for synthesis, adding a ledger finding ID to the evidence reference when available.
+
 ```
 Tier 1: REST API (highest fidelity)
    ↓ (if no URL/key, or auth fails)
@@ -255,6 +257,18 @@ Triggered when both Tier 1 and Tier 2 are unavailable. The launcher (the `cd-dis
 ## Output: Weave Map
 
 This sub-playbook does **not** produce a self-contained "Deployment Orchestrator" section. Instead, output a **weave map** — a structured list of evidence items, each tagged with the target dimension(s) in `findings.md`. The strategist will drop each item into the relevant dimension section.
+
+### Evidence routing to optional agents
+
+After collection, route only sanitized facts, narrow excerpts, and source identifiers; do not include API keys, variable values, sensitive identifiers, or unnecessary payloads. The strategist owns collection, deduplication, and final synthesis. Do not ask a specialist to fetch a resource already collected here.
+
+| Collected Octopus evidence | Optional evidence-only agent | Routing boundary |
+|---|---|---|
+| Deployment process, lifecycle phases, approval/manual-intervention gates, channels that constrain release eligibility, post-deploy checks, runbooks, promotion and recovery controls | `release-safety-recovery` (`REL-` records) | Release/process/lifecycle/runbook/promotion/recovery evidence after artifact handoff. |
+| Deployment and task history, actual outcomes, and measured frequency/duration/failure/recovery intervals | `delivery-metrics-flow` (`FLOW-` records) | Observed history and outcomes only; include the collected population, time bounds, calculation, and limitations. |
+| CI/build/package/artifact details | `ci-artifact-integrity` (`CI-` records) | Only when collected Octopus evidence directly establishes the producer-side artifact handoff or its identity; do not duplicate CI repository scans. |
+
+Keep the weave-map protocol usable whether evidence is synthesized directly by the strategist or also represented by ledger records. Refer to a specialist record by its stable ID; do not create a second finding for an already-owned claim.
 
 ### Weave-map format
 

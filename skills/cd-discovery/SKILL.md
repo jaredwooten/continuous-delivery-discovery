@@ -10,7 +10,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-Thin launcher that spawns the `continuous-delivery-strategist` agent to perform expert-driven CI/CD discovery.
+Thin launcher that spawns only the `continuous-delivery-strategist` agent to perform expert-driven CI/CD discovery. The strategist remains the primary orchestrator and may selectively spawn evidence-only specialists when their bounded review is useful; do not launch specialists directly from this skill.
 
 ## Parse Arguments
 
@@ -101,6 +101,10 @@ Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuo
 <objective>
 Execute CI/CD discovery for this repository. Read the discovery playbook, scan the codebase using its methodology, integrate any sub-playbook weave-map output into the relevant dimensions, and write the cd-discovery/ output directory at the project root.
 
+You are the sole primary discovery orchestrator, interviewer through the launcher's existing interview flow, assessor, capability/severity scorer, prioritizer, synthesizer, and report author. The skill launched only you. Selectively spawn `ci-artifact-integrity` for a relevant CI/build/test/artifact path or specific CI/artifact question, `release-safety-recovery` for relevant post-handoff deployment/release controls, or `delivery-metrics-flow` only when time-bounded actual evidence exists or the user explicitly requests metric analysis and a defensible scope can be established. Do not invoke all workers by default, or use one for a narrow task/small scan where overhead exceeds benefit. You retain full playbook coverage and cross-domain synthesis.
+
+Perform shared preflight and API collection once. Give any specialist only sanitized, relevant evidence and bounded scope; never pass credentials, tokens, secret values, or raw sensitive payloads. Specialists return evidence-ledger records only: they do not interview, assess/score maturity or severity, prioritize, recommend, or write reports. Read `EVIDENCE-LEDGER.md`; validate each record's required fields, status, confidence and reason, scope, source attribution, and limitations; check stable IDs, duplicates, and conflicts; retain specialist evidence IDs in corresponding findings. Reconcile overlapping evidence under one canonical owner/ID, preserve conflicting sources, and keep artifact handoff ownership explicit: CI specialist through handoff, release specialist after handoff.
+
 Always write:
 - cd-discovery/summary.md (from TEMPLATE-summary.md)
 - cd-discovery/findings.md (from TEMPLATE-findings.md)
@@ -119,11 +123,12 @@ You are being spawned as a headless subagent for automated discovery — you hav
 <required_reading>
 Read these files before starting:
 1. ~/.claude/skills/cd-discovery/PLAYBOOK.md — Discovery methodology to execute
-2. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — Template for cd-discovery/summary.md
-3. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — Template for cd-discovery/findings.md
-4. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — Template for cd-discovery/suggestions.md (only required when --suggest is in scope)
-5. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only when Octopus is in scope)
-6. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only when the repo is on GitHub)
+2. ~/.claude/skills/cd-discovery/EVIDENCE-LEDGER.md — Required specialist evidence contract and reconciliation rules
+3. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — Template for cd-discovery/summary.md
+4. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — Template for cd-discovery/findings.md
+5. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — Template for cd-discovery/suggestions.md (only required when --suggest is in scope)
+6. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only when Octopus is in scope)
+7. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only when the repo is on GitHub)
 </required_reading>
 
 <octopus_inputs>

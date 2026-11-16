@@ -4,6 +4,8 @@ Use this sub-playbook when the repository is hosted on **GitHub** and the discov
 
 It produces a **weave map** of evidence items (each tagged with target dimensions) that the strategist weaves into `findings.md`. The findings feed into the main capability matrix (Build & CI, Testing, Security, Release Process).
 
+This remains the single GitHub collection protocol. The strategist performs each applicable GitHub/API or `gh` query once, then may route sanitized evidence and source references to the optional evidence-only agents. Specialists must not repeat queries or broaden the scan. Use the existing weave map for synthesis; include a ledger finding ID in its evidence reference when one exists. Security alert findings may remain with the strategist for direct synthesis unless a specific alert-control claim clearly belongs to an existing specialist scope.
+
 ## When to run
 
 The launcher (`SKILL.md`) decides. The sub-playbook is in scope when:
@@ -228,6 +230,22 @@ grep -rcEn '^\s*-\s*(name:.*[Bb]uild|run:.*docker build|run:.*dotnet publish|run
 A workflow with multiple build invocations against different envs is a per-environment-rebuild signal; pair with the deploy-script grep from main playbook §1.13.
 
 Feed all output into the §1.13 PLAYBOOK output and into the Security + Deployment Automation dimensions.
+
+---
+
+## Evidence routing to optional agents
+
+Route only the sanitized facts, relevant excerpts, and source identifiers from the collection above. Do not send credentials, raw alert/PR payloads, or unrelated repository data. A specialist reviews supplied evidence; it does not make additional GitHub/API calls. The strategist retains ownership of collection, deduplication, maturity/severity assessment, and report synthesis.
+
+| Collected GitHub evidence | Optional evidence-only agent | Routing boundary |
+|---|---|---|
+| Required status checks, workflow definitions, workflow permissions where they constrain CI, and artifact provenance/supply-chain controls | `ci-artifact-integrity` (`CI-` records) | CI/build/test gate configuration and the producer-side artifact handoff only; no empirical run-outcome analysis. |
+| Deployment/release approvals and deployment safety settings | `release-safety-recovery` (`REL-` records) | Post-artifact-handoff deployment gates and safety controls only. |
+| Time-bounded workflow run outcomes, merged-PR history/cadence, and measured delivery or flow metrics | `delivery-metrics-flow` (`FLOW-` records) | Empirical outcomes only; keep population, time window, and calculation limits explicit. |
+
+General repository policy—including branch protection and rulesets, required PR reviews/approvers, and admin bypass—remains with the strategist for direct synthesis. Route any such evidence to `release-safety-recovery` only when it specifically configures a post-handoff deployment gate owned by that agent. Required status checks and workflow CI remain CI evidence, even when discovered through branch protection.
+
+Security feature configuration and alert counts are collected once by this sub-playbook and may be synthesized directly by the strategist. Route a claim to a specialist only when its evidence and ownership clearly fit that specialist's stated scope; do not create duplicate claims. Reuse an existing stable ledger ID when a claim is revisited, and have other workers cite that ID rather than emit a second record.
 
 ---
 

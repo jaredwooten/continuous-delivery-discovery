@@ -2,13 +2,16 @@
 
 A [Claude Code](https://claude.com/claude-code) skill + agent bundle that performs **automated CI/CD pipeline discovery** on any repository. Produces structured capability assessments scored against the L0–L4 maturity model across seven dimensions (Build & CI, Testing, Deployment Automation, Release Process, Environments & Infra, Observability, Progressive Delivery).
 
-The skill is a thin launcher; the heavy lifting is done by the bundled `continuous-delivery-strategist` agent, which reads playbooks for the main codebase scan plus optional sub-scans for **GitHub** (branch protection, security alerts, workflow execution reality, PR cadence) and **Octopus Deploy** (REST API → Config-as-Code → questionnaire fallback tiers).
+The skill is a thin launcher; the primary agent is the bundled `continuous-delivery-strategist`, which owns discovery, assessment, and report synthesis. Three optional evidence-only agents can review sanitized evidence the strategist has already collected: `ci-artifact-integrity` for CI gates and artifact handoff, `release-safety-recovery` for release controls and recovery, and `delivery-metrics-flow` for observed delivery outcomes. They return evidence-ledger records; they do not assign maturity or severity, write reports, or repeat API queries. GitHub and Octopus remain single collection protocols in their existing sub-playbooks.
 
 ## What you get
 
 - `skills/cd-discovery/` — installs to `~/.claude/skills/cd-discovery/` and exposes `/cd-discovery` as a slash command
-- `agents/continuous-delivery-strategist.md` — installs to `~/.claude/agents/` and is spawned by the skill
+- `agents/continuous-delivery-strategist.md` — installs to `~/.claude/agents/` and remains the primary agent spawned by the skill
+- `agents/ci-artifact-integrity.md`, `agents/release-safety-recovery.md`, and `agents/delivery-metrics-flow.md` — optional evidence-only agents installed alongside the strategist
 - An assessment-grade output report (not just a scan dump) — every finding is mapped to a capability level with confidence calls and named anti-patterns
+
+The `EVIDENCE-LEDGER.md` contract defines stable, attributable finding records. The strategist collects source evidence once, routes only sanitized relevant facts and source references when a specialist is useful, and retains final synthesis. Persistent agent memory is reserved for the strategist; specialists do not use persistent memory.
 
 ## Prerequisites
 
@@ -80,11 +83,11 @@ If you run `/cd-discovery` first and decide later that you want suggestions, run
 
 ## What gets scanned
 
-**Codebase (12 categories):** CI workflow files, containers, IaC, build configs, environment configs, deploy scripts, observability config, feature flags, testing layout, release process artifacts, external orchestrator handoff, and GitHub repository posture.
+**Codebase:** CI workflow files, containers, IaC, build configs, environment configs, deploy scripts, observability config, feature flags, testing layout, release process artifacts, external orchestrator handoff, and GitHub repository posture.
 
-**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution success rates, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence.
+**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution outcomes, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence, and workflow artifact supply-chain signals. The strategist collects each source once; eligible evidence may be routed to a specialist without duplicating queries. Security alert findings may be synthesized directly by the strategist.
 
-**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, recent deployment outcomes — via REST API (Tier 1), Config-as-Code (Tier 2), or questionnaire (Tier 3).
+**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, and deployment/task history — via REST API (Tier 1), Config-as-Code (Tier 2), or questionnaire (Tier 3). The strategist collects each resource once and may route sanitized release-path or actual-outcome evidence to the corresponding specialist.
 
 ## Output
 

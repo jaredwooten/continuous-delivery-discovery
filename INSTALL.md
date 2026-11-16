@@ -3,36 +3,42 @@
 **Audience:** an agent running inside Claude Code (you). The user has asked you to install or update this bundle. Follow these steps in order. If anything is ambiguous, stop and ask the user via `AskUserQuestion` — do not improvise.
 
 **What gets installed:**
-- The `cd-discovery` skill → `~/.claude/skills/cd-discovery/` (6 files)
+- The `cd-discovery` skill → `~/.claude/skills/cd-discovery/` (9 files: `EVIDENCE-LEDGER.md`, `GH-DISCOVERY.md`, `OCTOPUS-DISCOVERY.md`, `PLAYBOOK.md`, `SKILL.md`, `TEMPLATE-findings.md`, `TEMPLATE-suggestions.md`, `TEMPLATE-summary.md`, `UPDATE-PLAYBOOK.md`)
 - The `continuous-delivery-strategist` agent → `~/.claude/agents/continuous-delivery-strategist.md`
+- Three optional evidence-only agents → `~/.claude/agents/ci-artifact-integrity.md`, `~/.claude/agents/delivery-metrics-flow.md`, and `~/.claude/agents/release-safety-recovery.md`
 - An agent-memory directory → `~/.claude/agent-memory/continuous-delivery-strategist/` (created empty on fresh install; preserved as-is on update)
+
+Only the strategist uses persistent agent memory. The three evidence-only agents have no persistent-memory directories.
 
 **Install methods (two options):**
 - **Copy** (recommended for most users) — files are copied into `~/.claude/`. The cloned repo can move or be deleted afterward. Updates require re-running this playbook against a fresh `git pull`.
-- **Symlink** (for contributors / dogfooders) — `~/.claude/skills/cd-discovery` and `~/.claude/agents/continuous-delivery-strategist.md` become symlinks to the cloned repo. Edits in the repo apply live to your Claude Code sessions. Updates are just `git pull` inside the cloned repo — no copying or backup needed. **Caveat:** if you delete or move the cloned repo, the symlinks dangle and the skill silently fails to load.
+- **Symlink** (for contributors / dogfooders) — `~/.claude/skills/cd-discovery` and all four installed agent files become symlinks to the cloned repo. Edits in the repo apply live to your Claude Code sessions. Updates are just `git pull` inside the cloned repo — no copying or backup needed. **Caveat:** if you delete or move the cloned repo, the symlinks dangle and the skill silently fails to load.
 
 ## Step 1 — Detect mode (fresh vs update) and installed method
 
-Check whether both install targets already exist:
+Check whether the skill directory and all four agent targets already exist:
 
 - Does `~/.claude/skills/cd-discovery` exist (as a directory **or** as a symlink)?
 - Does `~/.claude/agents/continuous-delivery-strategist.md` exist (as a file **or** as a symlink)?
+- Do `~/.claude/agents/ci-artifact-integrity.md`, `~/.claude/agents/delivery-metrics-flow.md`, and `~/.claude/agents/release-safety-recovery.md` exist (as files **or** as symlinks)?
 
-Use `test -e` (not `test -d` / `test -f`) so symlinks count as present.
+For **each target**, check `test -e PATH || test -L PATH` so both valid and dangling symlinks count as present. Also identify dangling symlinks: if `test -L PATH` succeeds but `test -e PATH` fails, classify the install as **partial/broken** and ask the user how to proceed; do not treat it as a fresh install. Verify target types too: the skill target must be a directory or symlink to a directory, and each agent target must be a file or symlink to a file. Any existing target of the wrong type is a **partial/broken install**; ask the user how to proceed instead of classifying it as a valid update.
 
 Mode resolution:
 
-| Skill | Agent | Mode |
+| Skill | All four agents | Mode |
 |---|---|---|
-| Missing | Missing | **Fresh install** — go to Step 3a |
-| Present | Present | **Update** — go to Step 3b |
-| One present, one missing | | **Partial install detected.** Ask the user via `AskUserQuestion` whether to (a) treat it as a fresh install and replace whatever is there, or (b) abort so they can investigate manually. Do not guess. |
+| Missing | All missing | **Fresh install** — go to Step 3a |
+| Present | All present | **Update** — go to Step 3b |
+| Any other combination | | **Partial install detected.** Ask the user via `AskUserQuestion` whether to (a) treat it as a fresh install and replace whatever is there, or (b) abort so they can investigate manually. Do not guess. |
 
-**If mode is Update**, also detect the installed method by checking whether the targets are symlinks (`test -L`):
+Any dangling symlink is a partial/broken install regardless of the other targets' states. Ask the user via `AskUserQuestion` whether to (a) treat it as a fresh install and replace whatever is there, or (b) abort so they can investigate manually. Do not classify dangling targets as missing or proceed automatically.
 
-- Both are symlinks pointing into a cloned copy of this repo → **symlinked install** (use Step 3b-link)
-- Neither is a symlink → **copied install** (use Step 3b-copy)
-- Mixed (one symlink, one regular) → ask the user how to proceed; don't guess
+**If mode is Update**, also detect the installed method by checking whether the skill directory and all four agent targets are symlinks (`test -L`):
+
+- All are symlinks pointing into a cloned copy of this repo → **symlinked install** (use Step 3b-link)
+- None are symlinks → **copied install** (use Step 3b-copy)
+- Mixed (some symlinks, some regular files/directories) → ask the user how to proceed; don't guess
 
 **If mode is Fresh install**, ask the user via `AskUserQuestion` which method to use:
 
@@ -48,10 +54,16 @@ Run these checks before doing any file operations:
 1. **You are in the cloned repo.** Confirm these files exist relative to the current working directory:
    - `skills/cd-discovery/SKILL.md`
    - `skills/cd-discovery/PLAYBOOK.md`
-   - `skills/cd-discovery/TEMPLATE.md`
+   - `skills/cd-discovery/TEMPLATE-findings.md`
+   - `skills/cd-discovery/TEMPLATE-summary.md`
+   - `skills/cd-discovery/TEMPLATE-suggestions.md`
+   - `skills/cd-discovery/EVIDENCE-LEDGER.md`
    - `skills/cd-discovery/UPDATE-PLAYBOOK.md`
    - `skills/cd-discovery/OCTOPUS-DISCOVERY.md`
    - `skills/cd-discovery/GH-DISCOVERY.md`
+   - `agents/ci-artifact-integrity.md`
+   - `agents/delivery-metrics-flow.md`
+   - `agents/release-safety-recovery.md`
    - `agents/continuous-delivery-strategist.md`
 
    If any are missing, abort and tell the user they appear to be in the wrong directory or have a corrupted clone.
@@ -70,11 +82,14 @@ Execute in order:
    ```bash
    cp -R skills/cd-discovery ~/.claude/skills/cd-discovery
    ```
-3. Copy the agent file:
+3. Copy all four agent files:
    ```bash
    cp agents/continuous-delivery-strategist.md ~/.claude/agents/continuous-delivery-strategist.md
+   cp agents/ci-artifact-integrity.md ~/.claude/agents/ci-artifact-integrity.md
+   cp agents/delivery-metrics-flow.md ~/.claude/agents/delivery-metrics-flow.md
+   cp agents/release-safety-recovery.md ~/.claude/agents/release-safety-recovery.md
    ```
-4. Verify the install — list both destinations and confirm all 6 skill files and the agent file are present.
+4. Verify the install — list both destinations and confirm all 9 skill files and all four agent files are present.
 
 Proceed to **Step 4**.
 
@@ -95,20 +110,21 @@ The user is running this from inside the cloned repo. Capture its absolute path 
    ln -s "$REPO_DIR/skills/cd-discovery" ~/.claude/skills/cd-discovery
    ```
 
-4. Create the agent symlink:
+4. Create symlinks for all four agent files:
    ```bash
    ln -s "$REPO_DIR/agents/continuous-delivery-strategist.md" ~/.claude/agents/continuous-delivery-strategist.md
+   ln -s "$REPO_DIR/agents/ci-artifact-integrity.md" ~/.claude/agents/ci-artifact-integrity.md
+   ln -s "$REPO_DIR/agents/delivery-metrics-flow.md" ~/.claude/agents/delivery-metrics-flow.md
+   ln -s "$REPO_DIR/agents/release-safety-recovery.md" ~/.claude/agents/release-safety-recovery.md
    ```
 
-5. Verify with `ls -la` — both targets should show as symlinks (`l...`) pointing into `$REPO_DIR`. Then `ls ~/.claude/skills/cd-discovery/` should list all 6 skill files (visible through the symlink).
+5. Verify with `ls -la` — the skill directory and all four agent targets should show as symlinks (`l...`) pointing into `$REPO_DIR`. Then `ls ~/.claude/skills/cd-discovery/` should list all 9 skill files (visible through the symlink).
 
 Proceed to **Step 4**. Mention to the user that future updates are just `git pull` from inside the cloned repo — no need to re-run this playbook.
 
 ## Step 3b-copy — Update (copy method)
 
-1. **Diff each repo file against its installed counterpart.** For each of the 7 files:
-   - Repo: `skills/cd-discovery/<file>.md` or `agents/continuous-delivery-strategist.md`
-   - Installed: `~/.claude/skills/cd-discovery/<file>.md` or `~/.claude/agents/continuous-delivery-strategist.md`
+1. **Diff each repo file against its installed counterpart.** Compare all 13 files: the 9 files listed under “What gets installed” for the skill and the four agent files (`continuous-delivery-strategist.md`, `ci-artifact-integrity.md`, `delivery-metrics-flow.md`, `release-safety-recovery.md`).
 
    Use `diff` (or compare hashes). Track which files differ.
 
@@ -117,12 +133,13 @@ Proceed to **Step 4**. Mention to the user that future updates are just `git pul
 3. **If any files differ** — summarize the changes to the user (filename + line-count delta is enough) and confirm via `AskUserQuestion` before overwriting. Provide two options: "Proceed (back up and replace)" and "Cancel".
 
 4. **On confirm:**
-   - Create a timestamped backup dir: `~/.claude/.backup-cd-discovery-$(date +%Y%m%d-%H%M%S)/`
-   - Copy the *currently installed* `cd-discovery` skill dir and agent file into the backup dir, preserving structure.
-   - Copy the repo versions over the installed paths (same `cp` commands as Step 3a-copy steps 2 & 3).
+    - Create a timestamped backup dir: `~/.claude/.backup-cd-discovery-$(date +%Y%m%d-%H%M%S)/`
+    - Copy the *currently installed* `cd-discovery` skill dir and all four agent files into the backup dir, preserving structure.
+    - Replace the installed skill directory contents without nesting a second `cd-discovery/` directory or leaving obsolete skill files behind: remove the installed `~/.claude/skills/cd-discovery/` directory after its backup, then copy `skills/cd-discovery/` into that path using the Step 3a-copy command.
+    - Copy all four repo agent files over their matching installed agent paths using the Step 3a-copy commands. Do not copy the strategist memory directory.
    - **Do not touch `~/.claude/agent-memory/continuous-delivery-strategist/`.** That's the agent's accumulated learnings across sessions. Preserve it.
 
-5. Verify the post-update file list matches the repo.
+5. Verify the post-update inventory matches all 9 skill files and all four agent files in the repo.
 
 Proceed to **Step 4**.
 
@@ -136,6 +153,8 @@ For symlinked installs, "update" is just pulling the cloned repo. There's nothin
    REPO_DIR="$(cd "$(dirname "$(dirname "$SKILL_LINK_TARGET")")" && pwd)"
    ```
    `$REPO_DIR` should now be the repo root. Confirm `$REPO_DIR/.git/` exists; if not, abort — the symlink target isn't a git checkout and you can't safely update.
+
+   Confirm that all four `~/.claude/agents/*.md` symlinks listed above point into the same `$REPO_DIR/agents/` directory. If any target differs or is missing, stop and ask how to proceed.
 
 2. Check working-tree state in the repo:
    ```bash
@@ -161,8 +180,11 @@ Proceed to **Step 4**.
 Report back to the user:
 
 - The installed paths:
-  - `~/.claude/skills/cd-discovery/` (list the 6 files; for symlinked installs, note the symlink target)
-  - `~/.claude/agents/continuous-delivery-strategist.md` (for symlinked installs, note the symlink target)
+  - `~/.claude/skills/cd-discovery/` (list the 9 files; for symlinked installs, note the symlink target)
+  - `~/.claude/agents/continuous-delivery-strategist.md`
+  - `~/.claude/agents/ci-artifact-integrity.md`
+  - `~/.claude/agents/delivery-metrics-flow.md`
+  - `~/.claude/agents/release-safety-recovery.md` (for symlinked installs, note all four agent symlink targets)
   - `~/.claude/agent-memory/continuous-delivery-strategist/` (preserved on update; empty on fresh install)
 - Install method used: **copy** or **symlink** — say so explicitly, since the update flow differs.
 - For copy-method updates: the backup directory path so they can roll back if needed.

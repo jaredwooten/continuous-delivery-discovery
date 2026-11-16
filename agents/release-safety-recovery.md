@@ -1,7 +1,7 @@
 ---
 name: release-safety-recovery
 description: "Use this agent for a bounded evidence review of the release path after artifact handoff: promotion, release approvals and gates, deployment strategy, post-deploy health controls, feature flags used as release controls, rollback and recovery, and Octopus Deploy release evidence. It records scoped evidence for the continuous-delivery-strategist to assess; it does not assess overall maturity or severity, prescribe or prioritize improvements, interview users, or create cd-discovery reports."
-model: opus
+model: gpt-6-luna
 color: orange
 ---
 

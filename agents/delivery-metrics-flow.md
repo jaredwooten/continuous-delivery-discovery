@@ -1,7 +1,7 @@
 ---
 name: delivery-metrics-flow
 description: "Use this agent for a bounded, evidence-only review of actual delivery outcomes and flow over a specified time window: deployment frequency, PR lead-time signals and base-branch distribution, workflow outcomes, deployment failures, recovery-time proxies, and measurement quality. It returns evidence-ledger records to the continuous-delivery-strategist; it does not infer outcomes from configuration, assign DORA classifications, recommend optimizations, assess pipeline architecture, interview users, or write reports."
-model: opus
+model: gpt-6-luna
 color: blue
 ---
 

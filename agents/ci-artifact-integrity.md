@@ -1,7 +1,7 @@
 ---
 name: ci-artifact-integrity
 description: "Use this agent for a bounded, read-only evidence review of CI/build/test gate flow and artifact identity, provenance, immutability, and build-once promotion. It returns evidence-ledger records for the continuous-delivery-strategist to assess; it does not assign maturity or severity, prioritize recommendations, interview users, or write cd-discovery reports."
-model: opus
+model: gpt-6-luna
 color: blue
 ---
 

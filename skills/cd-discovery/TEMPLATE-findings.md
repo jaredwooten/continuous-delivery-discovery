@@ -2,11 +2,11 @@
 
 > Generated: {date} | Repository: {repo_name}
 >
-> See also: [summary.md](./summary.md){if suggestions exist: " | [suggestions.md](./suggestions.md)"}
+> See also: [summary.md](./summary.md) | [evidence.md](./evidence.md){if suggestions exist: " | [suggestions.md](./suggestions.md)"}
 
 > Per-dimension deep dive. GitHub and Octopus evidence is woven into the relevant dimension sections — there are no dedicated "GitHub Repository Posture" or "Deployment Orchestrator" sections. Discovery source for sub-playbook items is noted inline with the evidence (e.g., `[evidence from gh CLI Tier 1, scanned 2026-05-26]`).
 >
-> Stable finding IDs can be cited across dimensions or by evidence-only agents. When a claim is represented in the evidence ledger, retain its ID and source attribution; do not mint a new ID when revisiting the same claim. Record status, confidence and its reason, scope, sources, and limitations so evidence quality and boundaries remain auditable.
+> Stable finding IDs can be cited across dimensions. Use this file for report presentation and `evidence.md` as the canonical source and analyst ledger. Cite relevant `SRC-` source-observation IDs alongside analyst finding IDs; retain stable IDs when revisiting the same claim. Record status, confidence and its reason, scope, source attribution, and limitations so evidence provenance and boundaries remain auditable.
 
 {repeat this block per dimension}
 
@@ -23,7 +23,7 @@
   - **Confidence:** {HIGH | MED | LOW} — {confidence reason; evidence quality/directness, not impact}
   - **Scope:** {repository/system, branch/environment/component, filters; for metrics include time window, population, and calculation}
   - **Sources:**
-    - {kind}: `{precise locator or resource/query}` — observed {YYYY-MM-DD}; {access context}; supports: {true/false}
+    - `{SRC-claim-key}` — {kind}: `{precise locator or resource/query}` — observed {YYYY-MM-DD}; {access context}; supports: {true/false}
   - **Limitations:** {search bounds, unavailable coverage, sampling, ambiguity, freshness, inference, or `None known` after checking}
   - **Related IDs:** {stable IDs, or `[]`}
 
@@ -40,7 +40,8 @@
 - A: {user's answer}
 
 **Evidence ledger references:**
-- `{stable-id}` — {brief claim or cross-dimension reference; retain the ID when citing this finding elsewhere}
+- Source evidence: `{SRC-claim-key}` — {brief source observation; see [evidence.md](./evidence.md)}
+- Analyst finding: `{CI-/REL-/FLOW-claim-key}` — {brief claim or cross-dimension reference; retain the ID when citing this finding elsewhere}
 
 {end repeat}
 

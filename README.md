@@ -2,16 +2,17 @@
 
 A [Claude Code](https://claude.com/claude-code) skill + agent bundle that performs **automated CI/CD pipeline discovery** on any repository. Produces structured capability assessments scored against the L0–L4 maturity model across seven dimensions (Build & CI, Testing, Deployment Automation, Release Process, Environments & Infra, Observability, Progressive Delivery).
 
-The skill is a thin launcher; the primary agent is the bundled `continuous-delivery-strategist`, which owns discovery, assessment, and report synthesis. Three optional evidence-only agents can review sanitized evidence the strategist has already collected: `ci-artifact-integrity` for CI gates and artifact handoff, `release-safety-recovery` for release controls and recovery, and `delivery-metrics-flow` for observed delivery outcomes. They return evidence-ledger records; they do not assign maturity or severity, write reports, or repeat API queries. GitHub and Octopus remain single collection protocols in their existing sub-playbooks.
+The skill is a thin launcher for a five-agent workflow. The `continuous-delivery-strategist` owns scope, consent, the user interview, assessment, and report synthesis. It delegates bounded, read-only source collection to `cd-evidence-collector`, which maintains the canonical `<target-repo>/cd-discovery/evidence.md`. The strategist then routes relevant, sanitized evidence to three specialists: `ci-artifact-integrity` (CI gates and artifact handoff), `release-safety-recovery` (release controls and recovery), and `delivery-metrics-flow` (observed delivery outcomes). Specialists analyze only their assigned evidence and return finding records; they do not collect sources, repeat queries, assign final maturity or severity, or write reports. The strategist validates and reconciles their findings.
 
 ## What you get
 
 - `skills/cd-discovery/` — installs to `~/.claude/skills/cd-discovery/` and exposes `/cd-discovery` as a slash command
 - `agents/continuous-delivery-strategist.md` — installs to `~/.claude/agents/` and remains the primary agent spawned by the skill
-- `agents/ci-artifact-integrity.md`, `agents/release-safety-recovery.md`, and `agents/delivery-metrics-flow.md` — optional evidence-only agents installed alongside the strategist
+- `agents/cd-evidence-collector.md` — installs alongside the strategist and owns the canonical source evidence document
+- `agents/ci-artifact-integrity.md`, `agents/release-safety-recovery.md`, and `agents/delivery-metrics-flow.md` — evidence-only analysis agents installed alongside the strategist
 - An assessment-grade output report (not just a scan dump) — every finding is mapped to a capability level with confidence calls and named anti-patterns
 
-The `EVIDENCE-LEDGER.md` contract defines stable, attributable finding records. The strategist collects source evidence once, routes only sanitized relevant facts and source references when a specialist is useful, and retains final synthesis. Persistent agent memory is reserved for the strategist; specialists do not use persistent memory.
+The output directory includes `evidence.md` (source inventory, dated collection runs, `SRC-` source records, and the strategist-appended analyst findings), `summary.md`, and `findings.md`; `suggestions.md` is produced only with `--suggest`. Collection provenance includes bounded scope, source locators, observation dates, sanitized access context, and limitations. Review sensitive evidence before recording it: never persist credentials, tokens, secret or variable values, full alert/PR content, or unnecessary personal/customer data. Use safe aliases, narrow references, redactions, and aggregate facts where appropriate. Persistent agent memory is reserved for the strategist; the collector and three specialists do not use persistent memory.
 
 ## Prerequisites
 
@@ -73,7 +74,7 @@ Once installed, run from any project in Claude Code:
 | `/cd-discovery --suggest` | Discovery + suggestions.md (gaps + tradeoffs + dependency map; a resource, not a plan) |
 | `/cd-discovery --update` | Refresh an existing report with new context — verifies what's verifiable, preserves the audit trail |
 | `/cd-discovery --skip-github` | Skip the GitHub sub-playbook even if the repo is on GitHub |
-| `/cd-discovery --octopus-url <u> --octopus-api-key <k>` | Force Tier 1 Octopus discovery against a specific server |
+| `/cd-discovery --octopus-url <u>` | Scope Octopus Tier 1 discovery; provide `OCTOPUS_API_KEY` through approved environment/runtime secret injection, never as a flag |
 
 The full flag set is in `skills/cd-discovery/SKILL.md` frontmatter.
 
@@ -85,9 +86,9 @@ If you run `/cd-discovery` first and decide later that you want suggestions, run
 
 **Codebase:** CI workflow files, containers, IaC, build configs, environment configs, deploy scripts, observability config, feature flags, testing layout, release process artifacts, external orchestrator handoff, and GitHub repository posture.
 
-**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution outcomes, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence, and workflow artifact supply-chain signals. The strategist collects each source once; eligible evidence may be routed to a specialist without duplicating queries. Security alert findings may be synthesized directly by the strategist.
+**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution outcomes, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence, and workflow artifact supply-chain signals. The collector gathers each authorized source once; eligible sanitized evidence may be routed to a specialist without duplicating queries. Security alert findings may be synthesized directly by the strategist from the evidence.
 
-**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, and deployment/task history — via REST API (Tier 1), Config-as-Code (Tier 2), or questionnaire (Tier 3). The strategist collects each resource once and may route sanitized release-path or actual-outcome evidence to the corresponding specialist.
+**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, and deployment/task history — via REST API (Tier 1), Config-as-Code (Tier 2), or user-reported evidence (Tier 3). The collector gathers authorized sources once and may route sanitized release-path or actual-outcome evidence to the corresponding specialist.
 
 ## Output
 
@@ -95,9 +96,10 @@ The skill produces a `cd-discovery/` directory at the project root:
 
 - `cd-discovery/summary.md` — executive summary, capability matrix (L0–L4 across seven dimensions), Strengths to Protect, anti-patterns, top three quick wins.
 - `cd-discovery/findings.md` — per-dimension deep dive. GitHub and Octopus evidence (when those sub-playbooks run) weaves into the relevant dimensions inline — there are no dedicated GitHub or Octopus sections.
+- `cd-discovery/evidence.md` — canonical source inventory and dated, provenance-bearing `SRC-` observations; the strategist appends validated specialist finding records here under `Analyst findings`.
 - `cd-discovery/suggestions.md` — only when `--suggest` has run. See description above.
 
-Each file is standalone-readable and maintains its own bottom-of-file revision log when you run `/cd-discovery --update`.
+Each report file is standalone-readable and maintains its own append-only bottom-of-file revision log when you run `/cd-discovery --update`. `evidence.md` retains prior collection runs and records; newer evidence marks replaced records `STALE` or `SUPERSEDED` with the replacing `SRC-` ID rather than deleting history.
 
 ### Migrating from the previous single-file output
 

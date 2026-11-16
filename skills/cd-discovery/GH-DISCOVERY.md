@@ -1,10 +1,16 @@
 # GitHub Repository Posture Sub-Playbook
 
-Use this sub-playbook when the repository is hosted on **GitHub** and the discovery scan needs to see the GitHub-side state that is not visible from `.github/workflows/` alone: branch protection, security alert backlog, workflow execution reality, PR cadence, and repository security feature state.
+Use this sub-playbook when the repository is hosted on **GitHub** and the discovery scan needs GitHub-side state not visible from `.github/workflows/` alone: branch protection, security alert backlog, workflow execution reality, PR cadence, and repository security feature state.
 
-It produces a **weave map** of evidence items (each tagged with target dimensions) that the strategist weaves into `findings.md`. The findings feed into the main capability matrix (Build & CI, Testing, Security, Release Process).
-
-This remains the single GitHub collection protocol. The strategist performs each applicable GitHub/API or `gh` query once, then may route sanitized evidence and source references to the optional evidence-only agents. Specialists must not repeat queries or broaden the scan. Use the existing weave map for synthesis; include a ledger finding ID in its evidence reference when one exists. Security alert findings may remain with the strategist for direct synthesis unless a specific alert-control claim clearly belongs to an existing specialist scope.
+This is the single GitHub collection protocol, owned and executed by
+`cd-evidence-collector`. It writes sanitized, attributable raw source
+observations and a source inventory to the canonical
+`<target-repo>/cd-discovery/evidence.md`, following `EVIDENCE-LEDGER.md`.
+Use stable `SRC-` IDs for source observations; do not use analyst finding IDs
+(`CI-`, `REL-`, `FLOW-`) for collected facts. Specialists consume the collected
+evidence and must not repeat queries or broaden the scan. After specialist
+results return, the strategist appends the separate analyst findings section
+to the same `evidence.md` and performs assessment and report synthesis.
 
 ## When to run
 
@@ -34,7 +40,7 @@ Inputs come from the launcher / environment, in priority order: flag → env var
 | Skip GitHub discovery | `--skip-github` | `GH_DISCOVERY_SKIP=1` | run if gh authenticated |
 | Override repo identity | `--gh-repo <owner/name>` | `GH_DISCOVERY_REPO` | infer from `git remote get-url origin` |
 
-**Never store** auth tokens, full alert payloads, or PR body content in agent memory. Only summary counts and specific named findings (e.g., "default-branch has no required status checks") are appropriate for memory.
+**Never store** auth tokens, full alert payloads, or PR body content in agent memory or `evidence.md`. The collector records sanitized source observations in `evidence.md`; it does not persist conclusions or findings in memory.
 
 ---
 
@@ -47,7 +53,7 @@ gh auth status
 gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,visibility,viewerPermission
 ```
 
-**Print** the authenticated user and `viewerPermission` to the conversation so the user can confirm the scan identity. If `viewerPermission` is below `READ`, abort the sub-playbook and tag the section `[INSUFFICIENT PERMISSIONS]`.
+Check `viewerPermission` before continuing. If it is below `READ`, abort collection and record the source as `BLOCKED` with `[INSUFFICIENT PERMISSIONS]` in the evidence document. The collector reports a sanitized authentication/access status to the strategist; do not disclose the authenticated username or persist it in reports/evidence.
 
 Resolve repo owner/name from `gh repo view`. Resolve the default branch from `defaultBranchRef.name`.
 
@@ -57,7 +63,8 @@ Resolve repo owner/name from `gh repo view`. Resolve the default branch from `de
 gh api repos/{O}/{R}/branches/{default}/protection
 ```
 
-Extract:
+Record the returned settings as source observations, without classifying their
+impact:
 - `required_pull_request_reviews.required_approving_review_count`
 - `required_pull_request_reviews.dismiss_stale_reviews`
 - `required_pull_request_reviews.require_code_owner_reviews`
@@ -78,7 +85,9 @@ For each branch named in workflow `on:` filters (e.g. `develop`, `main`, `releas
 gh api repos/{O}/{R}/branches/{branch}/protection
 ```
 
-If 404, the branch has no protection. Record as a fact, not yet as a finding (see Framing Rule below).
+If 404, record that the queried branch protection resource returned 404 for
+that branch. This is a source fact, not a finding (see the strategist framing
+rule below).
 
 ### 1.4 Rulesets
 
@@ -94,7 +103,7 @@ The newer ruleset model can supplement or supersede classic branch protection. O
 gh api repos/{O}/{R} --jq '.security_and_analysis'
 ```
 
-Extract per feature: `advanced_security`, `secret_scanning`, `secret_scanning_push_protection`, `secret_scanning_ai_detection`, `secret_scanning_non_provider_patterns`, `secret_scanning_validity_checks`, `dependabot_security_updates`.
+Record per-feature states for `advanced_security`, `secret_scanning`, `secret_scanning_push_protection`, `secret_scanning_ai_detection`, `secret_scanning_non_provider_patterns`, `secret_scanning_validity_checks`, and `dependabot_security_updates`.
 
 Also pull merge-mode config:
 ```bash
@@ -119,7 +128,7 @@ Captures whether CodeQL default-setup is configured, which languages, the schedu
 
 ### 1.8 Open security alert counts (capped)
 
-Each alert query is capped at the first **two paginated pages (200 alerts)**. If the response contains exactly 200 items, append a footnote "200+ — pagination capped" to the count.
+Each alert query is capped at the first **two paginated pages (200 alerts)**. If the response contains exactly 200 items, record "200+ — pagination capped" with the count. Record aggregate counts only, the query cap, and observation date; do not retain alert details or classify the backlog. Build the aggregate in the query pipeline; never write intermediate raw alert responses to disk or memory.
 
 **Note on `jq` + `--paginate`:** `gh api --paginate` emits **one JSON array per page** (concatenated, not merged). So `jq 'limit(200; .[])'` applied directly fails — it only sees the first page's array. The fix is `jq --slurp 'add | limit(200; .[])'` (or `-s 'add | ...'`), which first reads all pages into a single outer array, then `add` concatenates the inner arrays into one flat list before `limit` runs.
 
@@ -140,26 +149,31 @@ gh api "repos/{O}/{R}/code-scanning/alerts?state=open&per_page=100" --paginate \
 ```bash
 # Secret scanning
 gh api "repos/{O}/{R}/secret-scanning/alerts?state=open&per_page=100" --paginate \
-  | jq -s 'add | limit(200; .[]) | .secret_type' \
+      | jq -s 'add | limit(200; .[]) | .secret_type' \
   | wc -l
 ```
 
-Aggregate into a single severity table. Do **not** persist raw alert bodies — only counts.
+Aggregate into counts by severity/type as available. Do **not** persist raw alert bodies — only bounded counts.
 
 ### 1.9 Workflow execution reality
 
 ```bash
 gh run list --repo {O}/{R} --limit 200 --json status,conclusion,workflowName,createdAt \
-  | jq 'group_by(.workflowName) | map({workflow: .[0].workflowName, total: length, success: (map(select(.conclusion=="success")) | length), failure: (map(select(.conclusion=="failure")) | length)}) | sort_by(-.total)'
+  | jq 'group_by(.workflowName) | map({workflow: .[0].workflowName, returned: length, completed: (map(select(.conclusion=="success" or .conclusion=="failure")) | length), success: (map(select(.conclusion=="success")) | length), failure: (map(select(.conclusion=="failure")) | length), other_or_incomplete: (map(select(.conclusion!="success" and .conclusion!="failure")) | length)}) | sort_by(-.returned)'
 ```
 
-Cross-reference against defined workflows:
+This is the latest-200 returned runs, not a calendar window. Cross-reference
+against defined workflows and record execution data neutrally, including
+observation date, the returned population, and the number of completed runs
+with `success`/`failure` conclusions. If calculating a failure fraction, use
+`failure / (success + failure)` and report other/incomplete statuses separately;
+do not use all returned runs as the denominator.
 
 ```bash
 gh api repos/{O}/{R}/actions/workflows --jq '.workflows[] | {name, state, path}'
 ```
 
-Flag workflows that exist in `.github/workflows/` but have **zero runs** in the 200-run window. For those, fetch their most recent run individually to find the last success date:
+For workflows that exist in `.github/workflows/` but have **zero runs** in the returned 200-run window, fetch their most recent run individually to record the last run and conclusion date:
 
 ```bash
 gh run list --repo {O}/{R} --workflow={path} --limit 5 --json conclusion,createdAt,event
@@ -169,11 +183,11 @@ gh run list --repo {O}/{R} --workflow={path} --limit 5 --json conclusion,created
 
 ```bash
 gh pr list --repo {O}/{R} --state merged --limit 100 \
-  --json number,baseRefName,createdAt,mergedAt,author \
+  --json number,baseRefName,createdAt,mergedAt \
   | jq '[.[] | select(.mergedAt != null) | {hours: (((.mergedAt|fromdateiso8601)-(.createdAt|fromdateiso8601))/3600), base: .baseRefName}] | {total: length, by_base: group_by(.base) | map({base: .[0].base, count: length}), lead_time_hours: {p50: (sort_by(.hours)[length/2|floor].hours|floor), p90: (sort_by(.hours)[length*0.9|floor].hours|floor), p99: (sort_by(.hours)[length*0.99|floor].hours|floor), mean: ((map(.hours)|add)/length|floor)}}'
 ```
 
-Captures lead time distribution AND the base-branch distribution. A divergence between `baseRefName` of merged PRs and the team's documented branching model in `CLAUDE.md` is itself a finding (documentation drift).
+This query describes up to the latest 100 merged PRs returned, not a fixed calendar window. Record the observed date, actual merged-PR population, base-branch distribution, and calculation method for lead-time statistics. The shown quantiles use the sorted-value index `floor(p * n)` (clamped to the last index) with no interpolation; state this method and the mean's rounding method. Note if no valid merged records are available. Comparison to documented branching policy is strategist analysis, not a collector conclusion.
 
 ### 1.11 Dependabot PR queue
 
@@ -181,7 +195,7 @@ Captures lead time distribution AND the base-branch distribution. A divergence b
 gh pr list --repo {O}/{R} --author "app/dependabot" --state open --json number --limit 100 | jq 'length'
 ```
 
-A queue much smaller than the open alert backlog (especially with `dependabot_security_updates: disabled`) is a finding.
+Record the returned open-PR count and query date. Comparisons with alert counts or settings are strategist analysis.
 
 ### 1.12 CODEOWNERS presence
 
@@ -192,7 +206,7 @@ gh api repos/{O}/{R}/contents/.github/CODEOWNERS 2>/dev/null \
   || echo "missing"
 ```
 
-If a CODEOWNERS file exists but `require_code_owner_reviews: false` on the default branch, that's a partial-adoption finding worth flagging.
+Record file presence and the queried `require_code_owner_reviews` setting as separate source facts. Their relationship is for strategist analysis.
 
 ### 1.13 Artifact provenance and supply-chain posture
 
@@ -210,7 +224,7 @@ grep -rEn 'cosign|sigstore|actions/attest-build-provenance|anchore/sbom-action|s
 grep -rEn 'actions/cache|cache:[[:space:]]*(npm|yarn|pnpm|pip|maven|gradle)|cache-from|cache-to' .github/workflows/
 ```
 
-Absence of any cache on workflows that build the production artifact is a feedback-loop finding worth naming. Slow builds → larger PR batches → harder rollbacks.
+Record matching cache configuration and the inspected workflow paths as source facts. Whether the observed configuration affects feedback loops is strategist analysis.
 
 **Install command hygiene:**
 
@@ -218,7 +232,7 @@ Absence of any cache on workflows that build the production artifact is a feedba
 grep -rEn '\bnpm install\b|\byarn install\b|\bpip install\b' .github/workflows/
 ```
 
-Cross-check each match against the surrounding context: `npm ci`, `yarn install --frozen-lockfile`, and `pip install --require-hashes` are **not** findings. Non-deterministic installs (raw `npm install`, `yarn install`, `pip install`) on the production build path corrupt artifact identity and warrant a finding. Verify the actual command in the file — do not trust prior reports.
+Cross-check each match against surrounding context. Record the actual install command and its file/line; `npm ci`, `yarn install --frozen-lockfile`, and `pip install --require-hashes` differ from raw `npm install`, `yarn install`, and `pip install`. Whether the command constitutes a finding is strategist analysis. Verify the actual command in the file — do not trust prior reports.
 
 **Build-once-promote signals:**
 
@@ -227,31 +241,41 @@ Cross-check each match against the surrounding context: `npm ci`, `yarn install 
 grep -rcEn '^\s*-\s*(name:.*[Bb]uild|run:.*docker build|run:.*dotnet publish|run:.*npm run build)' .github/workflows/
 ```
 
-A workflow with multiple build invocations against different envs is a per-environment-rebuild signal; pair with the deploy-script grep from main playbook §1.13.
+Record the build-invocation observations and workflow path. Pair with the deploy-script evidence from main playbook §1.13 for strategist analysis; do not infer per-environment rebuilds from this heuristic alone.
 
-Feed all output into the §1.13 PLAYBOOK output and into the Security + Deployment Automation dimensions.
+Record relevant matches as source observations in `evidence.md` with file/line references. Dimension mapping and assessment belong to strategist synthesis.
 
 ---
 
-## Evidence routing to optional agents
+## Collection ownership and handoff
 
-Route only the sanitized facts, relevant excerpts, and source identifiers from the collection above. Do not send credentials, raw alert/PR payloads, or unrelated repository data. A specialist reviews supplied evidence; it does not make additional GitHub/API calls. The strategist retains ownership of collection, deduplication, maturity/severity assessment, and report synthesis.
+`cd-evidence-collector` performs every applicable GitHub CLI/API query in this
+protocol once, then records the result in `<target-repo>/cd-discovery/evidence.md`.
+The source inventory records each source family as `COMPLETE`, `PARTIAL`,
+`BLOCKED`, `SKIPPED`, `NOT_APPLICABLE`, or `MISSING`, with attempted scope,
+sanitized access context, and limitation/reason. User answers are `USER-REPORTED`
+source records, not inventory statuses. Use the record schema in
+`EVIDENCE-LEDGER.md`; each source observation must cite a narrow
+resource/query or file reference and include observed date, access context,
+scope, and limitations. For metrics, scope the time window, population, and
+calculation method (including numerator/denominator) explicitly. Do not record
+interpretations, maturity, severity, recommendations, or a dimension-tagged
+weave map.
 
-| Collected GitHub evidence | Optional evidence-only agent | Routing boundary |
-|---|---|---|
-| Required status checks, workflow definitions, workflow permissions where they constrain CI, and artifact provenance/supply-chain controls | `ci-artifact-integrity` (`CI-` records) | CI/build/test gate configuration and the producer-side artifact handoff only; no empirical run-outcome analysis. |
-| Deployment/release approvals and deployment safety settings | `release-safety-recovery` (`REL-` records) | Post-artifact-handoff deployment gates and safety controls only. |
-| Time-bounded workflow run outcomes, merged-PR history/cadence, and measured delivery or flow metrics | `delivery-metrics-flow` (`FLOW-` records) | Empirical outcomes only; keep population, time window, and calculation limits explicit. |
-
-General repository policy—including branch protection and rulesets, required PR reviews/approvers, and admin bypass—remains with the strategist for direct synthesis. Route any such evidence to `release-safety-recovery` only when it specifically configures a post-handoff deployment gate owned by that agent. Required status checks and workflow CI remain CI evidence, even when discovered through branch protection.
-
-Security feature configuration and alert counts are collected once by this sub-playbook and may be synthesized directly by the strategist. Route a claim to a specialist only when its evidence and ownership clearly fit that specialist's stated scope; do not create duplicate claims. Reuse an existing stable ledger ID when a claim is revisited, and have other workers cite that ID rather than emit a second record.
+Specialists receive only the relevant sanitized evidence and `SRC-` references
+from this document. They do not call GitHub or rerun collection. If a necessary
+fact is absent, mark it as a bounded gap for the strategist; do not broaden the
+query independently. The strategist later validates and appends specialist
+`CI-`, `REL-`, and `FLOW-` analyst records under `## Analyst findings` in the
+same `evidence.md`, reusing the source references and avoiding duplicate
+claims. GitHub alert counts may be assessed by the strategist after collection;
+the collector records counts and limits only.
 
 ---
 
 ## Tier 2: Structured Questionnaire
 
-Triggered when `gh` is unavailable, unauthenticated, or the user opts out of Tier 1 but still wants the section populated. The launcher (the `cd-discovery` skill) asks these via `AskUserQuestion` before spawning the agent, in batches of 3-4, and passes the answers in. A headless agent never asks them; with no answers supplied, tag the gaps `[NEEDS CLARIFICATION]`. Tag every answer with `[USER-REPORTED]` and set confidence to `LOW`.
+Triggered when `gh` is unavailable or unauthenticated but the user still wants GitHub evidence. The collector returns the exact questionnaire as a structured clarification handoff and does not ask the user. The top-level skill presents it via `AskUserQuestion` in batches of 3–4, then invokes a targeted collector continuation with sanitized answers. A headless/skip-interview run leaves the source family `BLOCKED` or `SKIPPED` as appropriate, with the unresolved question recorded. Record each supplied answer as a concise, sanitized `USER-REPORTED` source observation in `evidence.md`, with the question as the source reference and observed date; avoid unnecessary personal or sensitive details.
 
 ### Batch A — Gating
 
@@ -276,11 +300,11 @@ Triggered when `gh` is unavailable, unauthenticated, or the user opts out of Tie
 
 ---
 
-## Framing Rule — interpreting branch protection in context
+## Strategist framing rule — interpreting branch protection in context
 
 > **Missing branch protection on a main/default branch is only a finding when the rest of the pipeline has poor or missing feedback loops.**
 
-Trunk-based development legitimately commits directly to main; some teams use short-lived PRs into main with branch protection, others don't. The sub-playbook reports the **state**; the agent must interpret severity by surveying the rest of the pipeline first.
+Trunk-based development legitimately commits directly to main; some teams use short-lived PRs into main with branch protection, others don't. The collector records the **state**; the strategist interprets severity by surveying the rest of the pipeline first.
 
 Before classifying any branch-protection finding as HIGH:
 
@@ -293,81 +317,84 @@ Before classifying any branch-protection finding as HIGH:
 If most answers are "yes", missing branch protection is **information**, not a finding.
 If most answers are "no", missing branch protection becomes a high-severity gap.
 
-Document the reasoning in the Cross-Stitch section so the reader can audit the severity call.
+The strategist documents the reasoning in the Cross-Stitch section so the reader can audit the severity call.
 
-### Framing Rule — artifact-centricity (parallel)
+### Strategist framing rule — artifact-centricity (parallel)
 
-Parallel to the branch-protection rule: build-once-promote-the-same-artifact is the load-bearing CD principle. When §1.13 of the main playbook verifies it is in place (single image build per commit, immutable tag, deploy step reads tag from the build rather than constructing it), name it as a **Strength to Protect** in the Cross-stitch section, with explicit warnings about what would regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When it is absent, treat it as a HIGH-severity Deployment Automation finding regardless of how strong the rest of the pipeline looks — re-testing per environment defeats the confidence model that CD depends on.
+Parallel to the branch-protection rule: build-once-promote-the-same-artifact is the load-bearing CD principle. When §1.13 of the main playbook verifies it is in place (single image build per commit, immutable tag, deploy step reads tag from the build rather than constructing it), the strategist may name it as a **Strength to Protect** in the Cross-stitch section, with explicit warnings about what would regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When it is absent, the strategist weighs it as a Deployment Automation concern — re-testing per environment defeats the confidence model that CD depends on.
 
 Build-once-with-config-swap-at-deploy (identical artifact bytes; runtime config swapped by the deploy step) is acceptable but must be framed as an asterisk so future readers don't confuse it with a full violation.
 
 ---
 
-## Output: Weave Map
+## Output: source evidence in `evidence.md`
 
-This sub-playbook does **not** produce a self-contained "GitHub Repository Posture" section. Instead, output a **weave map** — a structured list of evidence items, each tagged with the target dimension(s) in `findings.md`. The strategist will drop each item into the relevant dimension section.
+Write all collected GitHub observations and source inventory rows to
+`<target-repo>/cd-discovery/evidence.md`, following the canonical structure and
+`SRC-` schema in `EVIDENCE-LEDGER.md`. Do not emit a weave map, dimension-tagged
+findings, maturity levels, severity, or recommendations. Preserve only the raw
+evidence minimum needed for attributable analysis; summarize counts and
+configuration states rather than copying full alert, workflow-run, or PR
+payloads. For alert data, record bounded aggregate counts and the query cap,
+without alert bodies or identifying alert details.
 
-### Weave-map format
+Example source observation (illustrative; use actual observed values and date):
 
-Each line:
-
+```markdown
+### SRC-gh-required-checks-main
+#### SRC-gh-required-checks-main — required status check configuration
+- Status: VERIFIED
+- Scope: `acme/payments`, default branch `main`; required status checks.
+- Source: api — `GET repos/acme/payments/branches/main/protection`; required status checks.
+- Observed: 2026-11-13
+- Access context: GitHub CLI Tier 1, authenticated read-only repository access.
+- Supports: true
+- Limitations: Only the default branch was examined for this observation.
+- Related IDs: none
 ```
-{Dimension}: {file or gh-resource reference} — {one-line finding} [evidence: gh CLI Tier {N}, scanned {YYYY-MM-DD}]
-```
 
-Where `{Dimension}` is one of: `Build & CI`, `Testing`, `Deployment`, `Infrastructure as Code`, `Observability`, `Release Process`, `Security`.
-
-A finding that legitimately bears on multiple dimensions can appear on multiple lines, one per dimension, with the same evidence reference. Do not invent dimension assignments — only tag dimensions where the finding has clear bearing.
-
-### Example weave map
-
-```
-Testing: .github/workflows/ci.yml:34 — no E2E job runs on the default-branch trigger [evidence: gh CLI Tier 1, scanned 2026-05-26]
-Security: branch protection on `main` does not require code scanning to pass [evidence: gh CLI Tier 1, scanned 2026-05-26]
-Build & CI: workflow execution reality — 12% failure rate over last 50 runs on `build-and-test` [evidence: gh CLI Tier 1, scanned 2026-05-26]
-Release Process: 47 open Dependabot PRs, oldest 134 days [evidence: gh CLI Tier 1, scanned 2026-05-26]
-```
-
-### Severity framing rule (preserved from prior version)
-
-When a finding describes missing branch protection or missing required status checks on a default branch, **do not** assign HIGH severity in isolation. First survey Observability, Testing, and Deployment Automation evidence. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Tag the evidence line with the severity reasoning so the reader can audit the call:
-
-```
-Build & CI: default branch `main` has no required status checks [evidence: gh CLI Tier 1; severity weighting: Observability=HIGH (Datadog deploy markers + 5min MTTR), Testing=MED, Deployment=L3 (canary + auto-rollback) — net severity LOW]
-```
+The framing rules below remain synthesis guidance for the strategist, not
+collector output. A missing protection setting is a state observation; whether
+it is a gap and its severity depend on the wider feedback loops. Likewise,
+artifact-centricity conclusions and Strengths to Protect belong to strategist
+synthesis after the relevant source evidence has been reviewed.
 
 ### Authentication preflight (preserved)
 
-Before any gh CLI call, print the authenticated `gh` user and `viewerPermission` to the conversation so the reader can confirm identity. Do not echo auth tokens to the report, memory, or weave map.
+Before any `gh` CLI call, check authenticated access and `viewerPermission`.
+Report only a sanitized access status and permission sufficiency to the
+strategist. Do not print or persist the authenticated username, and never echo
+auth tokens to `evidence.md`, memory, or terminal output.
 
 ---
 
-## Cross-stitch into main capability matrix
+## Strategist synthesis notes
 
-Findings from this sub-playbook commonly affect:
-
-- **Build & CI** — required status checks state changes the level (a workflow that doesn't gate is informational, not gating). **Apply the Framing Rule** — weight by feedback-loop quality.
-- **Testing** — workflow execution reality reveals whether tests *actually* gate or just *appear to* (e.g., a Playwright workflow that hasn't passed in 3 months and only runs manually).
-- **Security** — security feature state shows tooling enablement; alert backlog shows whether the team is acting on it.
-- **Release Process** — base-branch distribution and CODEOWNERS presence can reveal documentation drift between CLAUDE.md and reality.
-
-Add an "After GitHub discovery" subsection to each affected dimension's Detailed Findings explaining the before→after level change.
+Collected GitHub evidence commonly informs Build & CI, Testing, Security, and
+Release Process. The strategist integrates it into the capability matrix after
+specialist results, applies the branch-protection and artifact-centricity
+framing rules above, and records analyst findings in the separate analyst
+section of `evidence.md`. Do not ask specialists to revisit GitHub sources that
+this protocol already collected.
 
 ---
 
 ## Quality Gate
 
-Before declaring the GitHub sub-playbook complete:
+Before declaring GitHub source collection complete:
 
-- ✅ Discovery tier recorded (Tier 1 / Tier 2)
-- ✅ Authenticated user and `viewerPermission` printed to the user
+- ✅ Every applicable GitHub source family recorded in `<target-repo>/cd-discovery/evidence.md` inventory with status, attempted scope, sanitized access context, and limitation/reason
+- ✅ Source observations use stable `SRC-` IDs and the `EVIDENCE-LEDGER.md` source-record schema
+- ✅ Authentication and sufficient `viewerPermission` checked; only sanitized access status recorded
 - ✅ Default branch identified and its protection state recorded
 - ✅ Secondary branches in workflow filters checked
 - ✅ Security feature state captured (AGS, secret scanning, CodeQL, Dependabot updates)
 - ✅ Alert counts summarized by severity (Dependabot + CodeQL + secret scanning)
 - ✅ Workflow execution reality captured (success rates + dormant/stale workflows)
 - ✅ PR cadence + base-branch distribution captured
-- ✅ Framing Rule applied — branch-protection findings interpreted with explicit reference to Observability/Testing/Deployment state
+- ✅ Branch-protection and artifact-centricity source facts are recorded neutrally; framing belongs to strategist synthesis
 - ✅ Artifact-provenance greps executed (cosign / SBOM / attestation, dependency cache coverage, install-command hygiene, build-once signals)
-- ✅ Artifact-centricity framing rule applied — when build-once-promote is in place it is named as a Strength to Protect with file:line evidence; when violated it is surfaced as a HIGH-severity Deployment Automation finding
-- ❌ **No** auth tokens, alert bodies, or PR content stored in the `cd-discovery/` output files (summary.md, findings.md, suggestions.md), in the weave map, or in agent memory
+- ✅ Metrics record the time window, population, and calculation method, including denominators and sampling/cap limits
+- ✅ Specialist handoff uses only existing sanitized observations and `SRC-` IDs; no GitHub source is queried twice
+- ❌ **No** auth tokens, alert bodies, full PR content, or sensitive values are stored in `evidence.md` or agent memory
+- ❌ **No** final maturity, severity, recommendations, or dimension-tagged weave map is emitted by the collector

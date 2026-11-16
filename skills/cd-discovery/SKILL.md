@@ -1,7 +1,7 @@
 ---
 name: cd-discovery
 description: "Automated CI/CD pipeline discovery — scans codebase for deployment artifacts, interviews user about gaps, produces structured input for the continuous-delivery-strategist agent"
-argument-hint: "[--skip-interview] [--suggest] [--update [<context-or-path>]] [--skip-github] [--octopus-url <url>] [--octopus-api-key <key>] [--octopus-space <id-or-name>] [--octopus-project <name>]"
+argument-hint: "[--skip-interview] [--suggest] [--update [<context-or-path>]] [--skip-github] [--octopus-url <url>] [--octopus-space <id-or-name>] [--octopus-project <name>]"
 allowed-tools:
   - Read
   - Edit
@@ -10,38 +10,38 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-Thin launcher that spawns only the `continuous-delivery-strategist` agent to perform expert-driven CI/CD discovery. The strategist remains the primary orchestrator and may selectively spawn evidence-only specialists when their bounded review is useful; do not launch specialists directly from this skill.
+Thin launcher that spawns only the `continuous-delivery-strategist` agent to perform expert-driven CI/CD discovery. The strategist owns questions, scope, consent/access setup, assessment, and reporting; it coordinates the `cd-evidence-collector` for source collection and may selectively spawn the three evidence-only analysts after validating the canonical evidence document. Do not launch the collector or analysts directly from this skill.
 
 ## Parse Arguments
 
 Extract flags from `$ARGUMENTS`:
 - `--skip-interview` — skip the post-scan interview step; leave gaps tagged `[NEEDS CLARIFICATION]` in `findings.md`
 - `--suggest` — after writing `cd-discovery/summary.md` and `findings.md`, also write `cd-discovery/suggestions.md` with the suggestion-voice framing (resource, not prescription). If `summary.md` and `findings.md` already exist (no `suggestions.md` yet), generate `suggestions.md` only against the existing findings without re-scanning.
-- `--update [<context-or-path>]` — apply additional context to the existing `cd-discovery/` directory instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the agent prompts the user for context interactively. Routes to `UPDATE-PLAYBOOK.md`.
+- `--update [<context-or-path>]` — apply additional context to the existing `cd-discovery/` directory instead of running a fresh discovery. The optional argument may be (a) an inline string of context, or (b) a path to a file containing the context. If omitted, the strategist uses the launcher interview flow to obtain context. Routes to `UPDATE-PLAYBOOK.md`.
 - `--skip-github` — skip the GitHub sub-playbook even if the repo has a github.com remote and `gh` is authenticated. Falls back to env var `GH_DISCOVERY_SKIP=1` if set.
 - `--octopus-url <url>` — Octopus Deploy server URL (e.g. `https://octopus.internal`). Falls back to env var `OCTOPUS_URL` if omitted.
-- `--octopus-api-key <key>` — Octopus API key (`API-...`). Falls back to env var `OCTOPUS_API_KEY` if omitted. **Never echo to terminal or report.**
+- Octopus API credentials — provide `OCTOPUS_API_KEY` only through an approved runtime secret or environment injection. Do not pass an API key as a command-line flag or prompt argument. The key must never enter strategist/collector prompts, shell history, process arguments, reports, or `evidence.md`.
 - `--octopus-space <id-or-name>` — Octopus space ID (e.g. `Spaces-1`) or display name. Falls back to env var `OCTOPUS_SPACE`, then to the default space.
-- `--octopus-project <name>` — restrict Octopus discovery to a specific project name or slug. Falls back to env var `OCTOPUS_PROJECT`. If omitted, the agent infers candidates from the repo name and confirms via `AskUserQuestion`.
+- `--octopus-project <name>` — restrict Octopus discovery to a specific project name or slug. Falls back to env var `OCTOPUS_PROJECT`. If omitted, the strategist asks the user to confirm the intended project scope through the launcher interview flow; do not infer or select an ambiguous project from source scans.
 
 ### Resolve Octopus mode
 
 After parsing, resolve which Octopus discovery tier to run:
-- **Tier 1 (API)** — if both URL and API key are present (flag or env var). The agent will use them via curl with `X-Octopus-ApiKey` headers.
-- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the agent looks for `.octopus/**/*.ocl` files in the current repo or uses a CaC repo path the launcher obtained from the user before spawning.
-- **Tier 3 (Questionnaire)** — if neither Tier 1 nor Tier 2 is available, the launcher asks the user the structured questions via `AskUserQuestion` before spawning, and passes the answers to the agent.
+- **Tier 1 (API)** — if both URL and API key are available through the approved runtime/environment. The strategist authorizes and scopes this access, then passes the collector the URL and approved space/project scope. The collector uses the key only through the existing authorized environment/runtime mechanism and documented curl stdin config; never put the key in an agent prompt, command argument, or evidence document.
+- **Tier 2 (CaC)** — if Tier 1 inputs are not present, the collector looks for `.octopus/**/*.ocl` files within the approved target repository or uses an explicitly scoped CaC repo path the strategist obtained from the user.
+- **Tier 3 (Questionnaire)** — the collector first checks the explicitly approved repository/CaC scope. If no CaC source is available, it returns a structured clarification handoff; the top-level skill asks the user via `AskUserQuestion`, then resumes a targeted collector pass with sanitized answers. The headless strategist and collector never ask questions themselves.
 - **Skip** — if the user provides `--octopus-url=none` or answers "we don't use Octopus" when asked, skip the sub-playbook entirely.
 
 Before asking, check for a retirement or migration doc (e.g. `docs/**/octopus-retirement*`). If the repo documents Octopus as retired, skip the sub-playbook and cite that doc.
 
-If no Octopus inputs are provided, no retirement doc was found, and `--skip-interview` is NOT set, the agent should ask once whether the repo is deployed via Octopus before deciding which tier to run.
+If no Octopus inputs are provided, no retirement doc was found, and `--skip-interview` is NOT set, the skill asks once whether the repo is deployed via Octopus before authorizing that source family. Detailed Tier 3 questions or ambiguous-project clarifications are asked only after the collector returns a structured handoff, then passed into a targeted collector continuation. The collector does not interview the user.
 
 ### Resolve GitHub mode
 
 After parsing, resolve whether to run the GitHub sub-playbook:
 1. Detect a GitHub remote: `git remote -v | grep -qE 'github\.com[:/]'`. If no GitHub remote, skip — no section in the output.
 2. If `--skip-github` (or `GH_DISCOVERY_SKIP=1`) is set, skip — tag the section `[SKIPPED by user]`.
-3. Otherwise check `gh auth status`. If authenticated → run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated → the launcher either prompts the user to run `gh auth login` or runs the **Tier 2** questionnaire per the sub-playbook, before spawning.
+3. Otherwise check `gh auth status`. If authenticated → pass approved repository scope and existing `gh` access context for the collector to run **Tier 1** of `GH-DISCOVERY.md`. If not authenticated and the user still wants GitHub evidence → run the collector's Tier 2 clarification handoff, ask the returned questions through the top-level skill, then resume a targeted collector pass with sanitized answers. Alternatively, the user may run `gh auth login` and restart discovery. Never let the collector or headless strategist ask the user directly.
 
 GitHub discovery requires no flags by default — if `gh` is authenticated and the repo is on GitHub, the sub-playbook runs automatically.
 
@@ -99,11 +99,13 @@ Launch the `continuous-delivery-strategist` agent with `subagent_type: "continuo
 
 ```
 <objective>
-Execute CI/CD discovery for this repository. Read the discovery playbook, scan the codebase using its methodology, integrate any sub-playbook weave-map output into the relevant dimensions, and write the cd-discovery/ output directory at the project root.
+Execute CI/CD discovery for this repository and write the requested `cd-discovery/` reports. You own discovery questions, scope, consent/access setup, assessment, synthesis, and report authorship, but do not collect source evidence yourself.
 
-You are the sole primary discovery orchestrator, interviewer through the launcher's existing interview flow, assessor, capability/severity scorer, prioritizer, synthesizer, and report author. The skill launched only you. Selectively spawn `ci-artifact-integrity` for a relevant CI/build/test/artifact path or specific CI/artifact question, `release-safety-recovery` for relevant post-handoff deployment/release controls, or `delivery-metrics-flow` only when time-bounded actual evidence exists or the user explicitly requests metric analysis and a defensible scope can be established. Do not invoke all workers by default, or use one for a narrow task/small scan where overhead exceeds benefit. You retain full playbook coverage and cross-domain synthesis.
+For fresh discovery, launch `cd-evidence-collector` with a bounded, read-only request covering the relevant repository categories and any authorized GitHub/Octopus sources. The collector writes `<target-repo>/cd-discovery/evidence.md`, the canonical evidence interface. Validate collection readiness, coverage/dispositions, scope, source references, limitations, and secret-safety before using it. Then selectively launch `ci-artifact-integrity` for a relevant CI/build/test/artifact slice, `release-safety-recovery` for relevant post-handoff deployment/release controls, and `delivery-metrics-flow` only when time-bounded actual evidence exists or the user explicitly requests metric analysis and a defensible scope can be established. Give analysts only bounded sections/source IDs from `evidence.md`; they return CI-/REL-/FLOW- records and must not collect sources, query APIs, interview, assess/score maturity or severity, prioritize, recommend, or write reports. Do not invoke analysts by default or when coordination overhead exceeds evidence benefit.
 
-Perform shared preflight and API collection once. Give any specialist only sanitized, relevant evidence and bounded scope; never pass credentials, tokens, secret values, or raw sensitive payloads. Specialists return evidence-ledger records only: they do not interview, assess/score maturity or severity, prioritize, recommend, or write reports. Read `EVIDENCE-LEDGER.md`; validate each record's required fields, status, confidence and reason, scope, source attribution, and limitations; check stable IDs, duplicates, and conflicts; retain specialist evidence IDs in corresponding findings. Reconcile overlapping evidence under one canonical owner/ID, preserve conflicting sources, and keep artifact handoff ownership explicit: CI specialist through handoff, release specialist after handoff.
+Read `EVIDENCE-LEDGER.md`. Validate collector coverage and every analyst record's required fields, status, confidence and reason, scope, source attribution, and limitations; check stable IDs, duplicates, and conflicts. Append accepted analyst records under `## Analyst findings` in `evidence.md`; use their IDs with source citations in findings. Reconcile overlapping evidence under one canonical owner/ID, preserve conflicting sources, and keep artifact handoff ownership explicit: CI analyst through handoff, release analyst after handoff. Pass GitHub/Octopus scope and approved access context to the collector, not analysts. Credentials must never be embedded in agent prompts or evidence; preserve existing auth runtime/environment constraints and pass only sanitized evidence to analysts.
+
+For summary/findings-only work against existing reports, use existing reports and evidence; do not recollect unless a material evidence gap requires it. For updates, use the collector only for targeted recollection of source slices needed to verify claims, not a full rescan by default.
 
 Always write:
 - cd-discovery/summary.md (from TEMPLATE-summary.md)
@@ -122,13 +124,14 @@ You are being spawned as a headless subagent for automated discovery — you hav
 
 <required_reading>
 Read these files before starting:
-1. ~/.claude/skills/cd-discovery/PLAYBOOK.md — Discovery methodology to execute
-2. ~/.claude/skills/cd-discovery/EVIDENCE-LEDGER.md — Required specialist evidence contract and reconciliation rules
-3. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — Template for cd-discovery/summary.md
-4. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — Template for cd-discovery/findings.md
-5. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — Template for cd-discovery/suggestions.md (only required when --suggest is in scope)
-6. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy sub-playbook (only when Octopus is in scope)
-7. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub sub-playbook (only when the repo is on GitHub)
+1. ~/.claude/skills/cd-discovery/PLAYBOOK.md — Discovery methodology and ownership boundaries
+2. ~/.claude/skills/cd-discovery/EVIDENCE-LEDGER.md — Canonical evidence document and analyst record contracts
+3. `agents/cd-evidence-collector.md` in this checkout (or the configured `cd-evidence-collector` agent definition) — Collector responsibilities and safe handling
+4. ~/.claude/skills/cd-discovery/TEMPLATE-summary.md — Template for cd-discovery/summary.md
+5. ~/.claude/skills/cd-discovery/TEMPLATE-findings.md — Template for cd-discovery/findings.md
+6. ~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md — Template for cd-discovery/suggestions.md (only required when --suggest is in scope)
+7. ~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md — Octopus Deploy source procedure for the collector (only when Octopus is in scope)
+8. ~/.claude/skills/cd-discovery/GH-DISCOVERY.md — GitHub source procedure for the collector (only when the repo is on GitHub)
 </required_reading>
 
 <octopus_inputs>
@@ -136,40 +139,41 @@ Read these files before starting:
   OCTOPUS_URL: {url}
   OCTOPUS_SPACE: {space-or-empty}
   OCTOPUS_PROJECT: {project-or-empty}
-  OCTOPUS_API_KEY: provided via env var to subsequent bash calls — do NOT echo, do NOT include in report or memory.
-  Run Tier 1 of OCTOPUS-DISCOVERY.md and produce a weave map (evidence-tagged findings to integrate into cd-discovery/findings.md dimensions).
+  API key is available only through the existing authorized environment/runtime mechanism; it is not included in this prompt or evidence document. The strategist passes the collector the URL and approved space/project scope. The collector runs Tier 1 of OCTOPUS-DISCOVERY.md and records sanitized observations in evidence.md.
 {Elif Tier 2 candidate:}
-  No Octopus API credentials provided. Look for .octopus/**/*.ocl in the repo (or sibling repos the user points at) and run Tier 2 of OCTOPUS-DISCOVERY.md to produce a weave map.
+  No Octopus API access in scope. The collector looks for explicitly in-scope .octopus/**/*.ocl sources and follows Tier 2 of OCTOPUS-DISCOVERY.md, recording observations in evidence.md.
 {Elif Tier 3 fallback:}
-  No Octopus credentials or CaC found. The launcher has already asked the user whether this repo is deployed via Octopus. Questionnaire answers (tagged [USER-REPORTED]) are supplied below; use them with Tier 3 of OCTOPUS-DISCOVERY.md to produce a weave map. If none were supplied, tag the Octopus gaps [NEEDS CLARIFICATION].
+  No Octopus API or CaC source is available. The launcher/strategist has obtained any consent and questionnaire answers (tagged [USER-REPORTED]); pass sanitized answers to the collector to record in evidence.md. The collector does not ask users. If none were supplied, preserve the Octopus slice as an explicit limitation for the strategist.
 {Elif user opted out:}
   User has indicated this repo does not use Octopus. Do not run the Octopus sub-playbook.
 </octopus_inputs>
 
+If the collector returns a structured clarification handoff because the Octopus project/space is ambiguous or questionnaire input is needed, pause strategist execution and return the exact bounded question(s) and sanitized choices to the top-level skill. The skill asks the user, then invokes a targeted strategist/collector continuation with sanitized answers. If `--skip-interview` is set, do not ask; preserve the explicit blocker and [NEEDS CLARIFICATION] tag.
+
 <github_inputs>
 {If repo has a github.com remote AND gh is authenticated AND NOT --skip-github:}
-  Run Tier 1 of GH-DISCOVERY.md against the repo and produce a weave map. Use the existing gh CLI auth; do not echo auth tokens to the report or memory. Print the authenticated gh user and viewerPermission to the conversation as part of the preflight so the user can confirm identity.
+  The strategist passes the approved repository scope and existing authenticated `gh` access context to the collector for Tier 1 of GH-DISCOVERY.md. Do not include auth tokens in the prompt or evidence. The collector records sanitized observations in evidence.md; do not print authenticated identities to the report or evidence.
 {Elif repo has a github.com remote AND --skip-github:}
   Skip the GitHub sub-playbook. Do not write GitHub evidence to the findings.
 {Elif repo has a github.com remote AND gh is unauthenticated:}
-  gh is not authenticated and the launcher has handled it: either Tier 2 questionnaire answers (tagged [USER-REPORTED]) are supplied below, or none were and the GitHub gaps stay tagged [NEEDS CLARIFICATION]. Do not prompt the user.
+  gh is not authenticated and the launcher has handled it: either sanitized Tier 2 questionnaire answers (tagged [USER-REPORTED]) are supplied for the collector to record, or none were and the GitHub slice remains explicitly limited. Do not prompt the user from the headless agent.
 {Else (no github.com remote):}
   Skip the GitHub sub-playbook silently — not applicable.
 </github_inputs>
 
 <framing_rule>
-When the GitHub sub-playbook surfaces missing branch protection or missing required status checks on a default branch, do NOT classify that as a high-severity finding in isolation. First survey Observability, Testing, and Deployment Automation. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Document the reasoning explicitly in the weave-map evidence-tag reasoning so the reader can audit the severity call.
+When collected GitHub observations show missing branch protection or required status checks on a default branch, do NOT classify that as a high-severity finding in isolation. First survey Observability, Testing, and Deployment Automation. Severity emerges from the combination — trunk-based development legitimately commits directly to main, and what matters is whether bad commits get noticed and rolled back fast enough. Document the reasoning with the cited evidence so the reader can audit the severity call.
 </framing_rule>
 
 <output>
-- Write cd-discovery/summary.md and cd-discovery/findings.md.
+- Ensure the collector has written and you have validated cd-discovery/evidence.md before writing cd-discovery/summary.md and cd-discovery/findings.md.
 - If --suggest is in scope, write cd-discovery/suggestions.md.
-- Weave GH and Octopus weave-map items into the relevant findings.md dimensions (and into summary.md's Strengths to Protect if tagged [strength-to-protect]). Do not create dedicated "GitHub Repository Posture" or "Deployment Orchestrator" sections.
+- Use GitHub and Octopus observations from evidence.md in the relevant findings.md dimensions and summary.md Strengths to Protect where applicable. Do not create dedicated "GitHub Repository Posture" or "Deployment Orchestrator" sections.
 - Save project findings to your agent memory — record the cd-discovery/ directory path, not CD-DISCOVERY.md. Never store auth tokens (Octopus API key, gh token), secret values, sensitive variable values, full alert payloads, or full PR content.
 </output>
 ```
 
-When invoking the agent's bash steps for Tier 1, pass the API key via the environment, e.g. `env OCTOPUS_API_KEY=$KEY curl -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" ...`. Never pass it as a CLI argument that would land in shell history or process listings.
+The collector must use the existing authorized runtime/environment mechanism for Tier 1 Octopus calls. Never place the API key in an agent prompt, CLI argument, shell history, process listing, report, or evidence document. The Octopus sub-playbook demonstrates passing it to curl through stdin configuration to avoid process-argument exposure.
 
 ## Interview Gaps
 
@@ -197,7 +201,7 @@ Used when the user chose **Update** (either by `--update` flag or by the existin
 
 ```
 <objective>
-Update the existing cd-discovery/ directory by folding in additional context the user has supplied. Each claim must be tagged with the file(s) it touches ([summary], [findings], [suggestions], or multi-tag). Multi-file claims (e.g., a dimension level change) must edit both the matrix row in summary.md AND the per-dimension section in findings.md in the same pass. Verify every claim that can be verified against the codebase or live APIs (gh CLI, Octopus REST API); tag the rest [USER-REPORTED] and lower confidence accordingly. Edit each file in place using granular Edit calls — preserve the audit trail by reframing prior findings rather than deleting them. Append a per-file revision log entry to each file the agent touched.
+Update the existing cd-discovery/ directory by folding in additional context the user has supplied. Each claim must be tagged with the file(s) it touches ([summary], [findings], [suggestions], or multi-tag). Multi-file claims (e.g., a dimension level change) must edit both the matrix row in summary.md AND the per-dimension section in findings.md in the same pass. Use existing evidence.md and reports first; only when a claim needs fresh verification, ask `cd-evidence-collector` for targeted recollection of the touched source slices. Do not scan sources or query APIs yourself. Verify every claim that can be verified against collected evidence; tag the rest [USER-REPORTED] and lower confidence accordingly. Edit each file in place using granular Edit calls — preserve the audit trail by reframing prior findings rather than deleting them. Append a per-file revision log entry to each file the agent touched.
 
 {If auto-invoked from the post-scan Interview Gaps step:} This context is answers from the interview immediately following a fresh discovery. Resolve each matching [NEEDS CLARIFICATION] tag directly — replace it with the resolved finding and revised level/confidence. Tags with no matching answer stay as [NEEDS CLARIFICATION].
 </objective>
@@ -224,9 +228,9 @@ Re-read these only if a user claim needs the corresponding slice re-verified:
 
 <verification_inputs>
 {Reuse the Octopus and GitHub resolution from the Spawn the Agent block above.}
-{If Octopus Tier 1 is resolved:} OCTOPUS_URL / OCTOPUS_SPACE / OCTOPUS_PROJECT are available; OCTOPUS_API_KEY is in the environment — never echo. Octopus-API claims can be re-verified slice-by-slice.
+{If Octopus Tier 1 is resolved:} OCTOPUS_URL / OCTOPUS_SPACE / OCTOPUS_PROJECT are available to scope collector requests; the API key remains only in the authorized runtime/environment and is never included in an agent prompt. Octopus-API claims can be re-verified slice-by-slice by the collector.
 {If Octopus Tier 1 NOT resolved:} Skip Octopus re-verification — tag Octopus-API claims [USER-REPORTED] and note in the revision header that the Octopus side was not re-scanned this pass.
-{If gh is authenticated:} GitHub-API claims can be re-verified slice-by-slice. Print the authenticated gh user and viewerPermission to the conversation before any GitHub call.
+{If gh is authenticated:} GitHub-API claims can be re-verified slice-by-slice by the collector using existing gh auth. Do not print authenticated identities or include tokens in prompts or evidence.
 {If gh is unauthenticated:} Skip GitHub re-verification — tag GitHub-API claims [USER-REPORTED] and note in the revision header.
 </verification_inputs>
 
@@ -235,7 +239,7 @@ Execute UPDATE-PLAYBOOK.md Phases 1 through 6 in order:
 - Phase 1: Ingest current report into a working memory index
 - Phase 2: Capture user context (skip interactive step if inline string / file path supplied)
 - Phase 3: Decompose into atomic claims; show the list to the user for confirmation before proceeding
-- Phase 4: Targeted verification — re-run only the scan slices the user's claims touch; surface any CONTRADICTED claim to the user before editing
+- Phase 4: Targeted verification — use existing evidence first; when necessary, have the collector recollect only the source slices the user's claims touch. Surface any CONTRADICTED claim to the user before editing.
 - Phase 5: Edit the relevant file(s) under cd-discovery/ in place using the Edit tool (granular edits only — no Write of the whole file). Multi-file claims (e.g., a dimension level change) must touch both summary.md's matrix row AND findings.md's dimension section in the same pass.
 - Phase 6: Append a per-file "### <today> — context refresh" entry to each file's bottom "## Revision history" section. Files the agent did not touch get no entry today.
 
@@ -250,7 +254,7 @@ Apply the Quality Gate at the end. Do not declare done if any item is unchecked.
 </output>
 ```
 
-When invoking the agent's bash steps for Tier 1 Octopus re-verification, pass the API key via the environment as documented above for the fresh-discovery path.
+The collector uses the existing authorized runtime/environment mechanism for Tier 1 Octopus re-verification; never pass the API key in its prompt or as a CLI argument.
 
 ## Spawn the Migrate Agent
 
@@ -311,7 +315,7 @@ After the agent returns:
 - If `--suggest` was NOT set: display that `cd-discovery/summary.md` and `cd-discovery/findings.md` have been written. Mention that the user can run `/cd-discovery --suggest` to generate a `suggestions.md` file with gap analysis, tradeoffs, and a dependency map.
 - If `--suggest` was set: the agent will have produced all three files. Display the summary.
 - If Octopus discovery ran, mention which tier was used (API / CaC / Questionnaire) so the user understands the confidence level.
-- If GitHub discovery ran, mention which tier was used (Tier 1 / Tier 2) and which `gh` identity was authenticated.
+- If GitHub discovery ran, mention which tier was used (Tier 1 / Tier 2); do not expose authenticated identity details in the report or evidence document.
 - If the Interview Gaps step ran: report how many gaps were found, how many were resolved via interview, and how many remain `[NEEDS CLARIFICATION]`. Remind the user to `git diff cd-discovery/` before committing, same as the Update path.
 
 **Update path:**

@@ -291,7 +291,8 @@ After migration, continue into suggestions generation against the migrated findi
    - Content split into new layout; see git history for the source file.
 
 6. Remove the legacy file via `git rm CD-DISCOVERY.md`.
-7. If --suggest was passed AND step 3 did not produce a suggestions.md (no legacy roadmap content), continue into a fresh suggestions generation against the migrated findings using TEMPLATE-suggestions.md and the suggestion voice.
+7. Create `cd-discovery/evidence.md` with `State: PARTIAL`, `Ready: no`, a migration-only run, and a `SKIPPED` source inventory entry explaining that legacy findings were not re-verified. Do not represent legacy claims as current collection evidence.
+8. If --suggest was passed AND step 3 did not produce a suggestions.md (no legacy roadmap content), continue into suggestions generation using TEMPLATE-suggestions.md.
 </procedure>
 
 <sub_playbook_weaving>
@@ -300,6 +301,7 @@ When weaving "Deployment Orchestrator" or "GitHub Repository Posture" content in
 
 <output>
 - cd-discovery/summary.md, cd-discovery/findings.md, and (when applicable) cd-discovery/suggestions.md written.
+- cd-discovery/evidence.md records migration provenance and explicitly remains not-ready until a fresh collection.
 - CD-DISCOVERY.md removed via git rm.
 - Each new file has a migration entry at the top of its Revision history.
 - Save findings to agent memory under the new cd-discovery/ path; if memory previously referenced CD-DISCOVERY.md for this repo, update the reference.

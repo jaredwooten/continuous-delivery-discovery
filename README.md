@@ -12,13 +12,11 @@ The skill is a thin launcher for a five-agent workflow. The `continuous-delivery
 - `agents/ci-artifact-integrity.md`, `agents/release-safety-recovery.md`, and `agents/delivery-metrics-flow.md` — evidence-only analysis agents installed alongside the strategist
 - An assessment-grade output report (not just a scan dump) — every finding is mapped to a capability level with confidence calls and named anti-patterns
 
-The output directory includes `evidence.md` (source inventory, dated collection runs, `SRC-` source records, and the strategist-appended analyst findings), `summary.md`, and `findings.md`; `suggestions.md` is produced only with `--suggest`. Collection provenance includes bounded scope, source locators, observation dates, sanitized access context, and limitations. Review sensitive evidence before recording it: never persist credentials, tokens, secret or variable values, full alert/PR content, or unnecessary personal/customer data. Use safe aliases, narrow references, redactions, and aggregate facts where appropriate. Persistent agent memory is reserved for the strategist; the collector and three specialists do not use persistent memory.
-
 ## Prerequisites
 
 - [Claude Code](https://claude.com/claude-code) installed and authenticated
 - Optional but recommended: `gh` CLI authenticated (`gh auth login`) — enables the GitHub sub-playbook when the target repo has a `github.com` remote
-- Optional: Octopus Deploy API key (`API-...`) — enables Tier 1 Octopus discovery against your Octopus server
+- Optional: Octopus URL and API key through approved runtime secret injection — enables Tier 1; never pass the key as a CLI argument
 
 ## Install (agent-driven)
 
@@ -99,7 +97,7 @@ The skill produces a `cd-discovery/` directory at the project root:
 - `cd-discovery/evidence.md` — canonical source inventory and dated, provenance-bearing `SRC-` observations; the strategist appends validated specialist finding records here under `Analyst findings`.
 - `cd-discovery/suggestions.md` — only when `--suggest` has run. See description above.
 
-Each report file is standalone-readable and maintains its own append-only bottom-of-file revision log when you run `/cd-discovery --update`. `evidence.md` retains prior collection runs and records; newer evidence marks replaced records `STALE` or `SUPERSEDED` with the replacing `SRC-` ID rather than deleting history.
+Each report file is standalone-readable and maintains its own append-only revision log. `evidence.md` retains dated collection runs; replaced records get `Freshness: STALE` or `SUPERSEDED` and a replacement `SRC-` ID, never deletion.
 
 ### Migrating from the previous single-file output
 

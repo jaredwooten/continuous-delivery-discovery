@@ -1,10 +1,10 @@
 # Octopus Deploy Discovery Sub-Playbook
 
-Use this sub-playbook when the repository is deployed via **Octopus Deploy** and the orchestrator is not visible from the codebase alone. It is the single Octopus source-collection protocol, owned and executed by `cd-evidence-collector`. The collector writes sanitized, attributable raw source observations and a source inventory to the canonical `<target-repo>/cd-discovery/evidence.md`, following `EVIDENCE-LEDGER.md`.
+Use when the repository deploys through Octopus Deploy and the orchestrator is not visible from the codebase alone. This is the collector's single Octopus protocol; write sanitized source observations to `evidence.md` under `EVIDENCE-LEDGER.md`.
 
 The sub-playbook tries three sources in order. Stop at the first one that succeeds — do not double-collect.
 
-The collector performs each applicable API, CaC, or questionnaire collection once. Do not write raw API responses, command output, or intermediate payloads to files or memory; sanitize at collection time and retain only the evidence minimum needed for attribution. Use stable `SRC-` IDs for source observations; do not use analyst finding IDs (`CI-`, `REL-`, `FLOW-`) for collected facts. Specialists consume the collected evidence and must not repeat queries or broaden collection. After specialist results return, the strategist appends the separate analyst findings section to the same `evidence.md` and performs assessment and report synthesis.
+Run each applicable API, CaC, or questionnaire collection once. Keep only sanitized evidence-minimum facts; never save raw responses or intermediate payloads. Specialists consume collected evidence without repeating queries; the strategist handles findings and synthesis.
 
 ```
 Tier 1: REST API (highest fidelity)
@@ -16,7 +16,7 @@ Tier 3: Structured questionnaire (lowest fidelity, human memory)
 
 ## Inputs
 
-The skill launcher passes any of the following (in priority order: flag → env var → omit), except that the API key is supplied only through approved runtime secret injection or the process environment:
+Inputs follow flag → environment → omit, except the API key, which is supplied only through approved runtime secret/environment injection:
 
 | Input | Flag | Env var | Required |
 |-------|------|---------|----------|
@@ -25,13 +25,13 @@ The skill launcher passes any of the following (in priority order: flag → env 
 | Space ID or name | `--octopus-space` | `OCTOPUS_SPACE` | Tier 1 only |
 | Project name(s) | `--octopus-project` | `OCTOPUS_PROJECT` | optional filter |
 
-**The API key must be provided only as an environment variable or approved runtime secret; never accept it as a flag or prompt value.** Do not type it into a command, shell history, prompt, file, or output. Never echo it to the terminal, report, or memory. Supply it to curl through standard input as curl configuration, never by expanding it into a command-line argument (including `-H`/`--header`). If a Tier 1 attempt fails, log the failure mode (4xx, 5xx, network) without the key value.
+Never accept, type, or persist the API key in flags, prompts, commands, history, files, or output. Supply it to curl only via stdin config (never argv, including `-H`); on failure record only the mode (4xx, 5xx, network).
 
 ---
 
 ## Tier 1: REST API Scan
 
-Use the following shell helper for every Tier 1 request. It streams curl configuration over stdin, so the key is not included in curl's process arguments and is not written to a file. The key must already be present in the environment via approved runtime secret injection; do not enter it into an `export` command or other shell-history entry. Do not enable shell tracing (`set -x`) or curl verbose/trace output while using the secret. All endpoints below are relative to `${OCTOPUS_URL}/api`. Replace `{space}` with the resolved space ID (e.g. `Spaces-1`).
+Use this helper for every Tier 1 request. The key must already be in the environment via approved secret injection; do not export it in a command. Do not enable shell tracing or curl verbose/trace output. Endpoints use `${OCTOPUS_URL}/api`; replace `{space}` with the resolved space ID.
 
 ```bash
 octopus_get() {
@@ -43,7 +43,7 @@ EOF
 }
 ```
 
-Pass the URL to `octopus_get`; do not add an API-key header to the invocation or enable verbose/trace output.
+Pass the URL to `octopus_get`; do not add a key header to its invocation.
 
 ### 1.1 Resolve Space
 
@@ -51,7 +51,7 @@ Pass the URL to `octopus_get`; do not add an API-key header to the invocation or
 octopus_get "$OCTOPUS_URL/api/spaces/all" | jq '.[] | {Id, Name, IsDefault}'
 ```
 
-If `--octopus-space` matches an `Id` or `Name`, use that. Otherwise pick the default space and record the selected default-space assumption in the source inventory.
+Use a matching `Id`/`Name`; otherwise use the default and record that assumption.
 
 ### 1.2 Locate the Project(s)
 
@@ -59,7 +59,7 @@ If `--octopus-space` matches an `Id` or `Name`, use that. Otherwise pick the def
 octopus_get "$OCTOPUS_URL/api/{space}/projects/all" | jq '.[] | {Id, Name, Slug, LifecycleId, IsDisabled, IsVersionControlled}'
 ```
 
-Match against `--octopus-project` (substring or exact). If not provided, use repository-name matching only to identify candidate projects (e.g., `mi-portal` → project slugs or names containing `mi-portal`, `mi-api`, or `mi-web`). If the result is ambiguous, do not choose a project or ask the user. Record the source inventory as `BLOCKED`, create an `UNVERIFIED` evidence record for the unresolved selection with the exact candidate set and structured question in the collector handoff, and return control to the strategist/launcher. The strategist/launcher asks the user, then invokes a targeted collector continuation with the sanitized answer. Until then, do not collect project-specific resources. Record the selected project and selection basis after continuation.
+Match `--octopus-project` exactly or by substring. Without it, repository-name matching only identifies candidates. If ambiguous, do not choose or interview: mark inventory `BLOCKED`, record an `UNVERIFIED` selection with exact candidates and a generated question ("Which project should I inspect: <candidate list>?") in the handoff, and stop project-specific collection. The strategist/launcher asks and starts a targeted continuation; record the selected project and basis afterward.
 
 For each matched project, capture:
 - `Id`, `Name`, `Slug`, `IsDisabled`, `IsVersionControlled` (CaC enabled?)
@@ -88,11 +88,7 @@ Extract per step:
 - **Conditions** — `OnlyIfPriorStepFailed`, `OnlyIfPriorStepSucceeded`, etc. (rollback hints)
 - **Health check or smoke test** steps after a deploy action
 
-Record, without judging, whether the inspected process contains a manual
-intervention before production, an explicit rollback step in the lifecycle,
-and `Octopus.Script` actions. For script actions, record only a concise,
-sanitized description of the relevant operation; never copy script contents
-that include credentials, values, or unrelated implementation details.
+Record whether there is a manual intervention before production, explicit lifecycle rollback, or `Octopus.Script` action. For scripts, retain only a concise sanitized operation description, never contents with credentials, values, or unrelated details.
 
 ### 1.4 Lifecycle & Promotion Rules
 
@@ -118,8 +114,7 @@ Capture:
 - `MinimumEnvironmentsBeforePromotion` — ratchet preventing skipping envs
 - **Retention policy** — how many releases / days are kept (matters for rollback window)
 
-The `AutomaticDeploymentTargets` list is the observed configuration for
-automatic deployment targets; preserve the selected lifecycle/phase scope.
+Preserve the selected lifecycle/phase scope for automatic deployment targets.
 
 ### 1.5 Channels & Versioning Rules
 
@@ -147,15 +142,7 @@ octopus_get "$OCTOPUS_URL/api/{space}/tasks/{taskId}" \
   | jq '{State, FinishedSuccessfully, StartTime, CompletedTime}'
 ```
 
-If computing metrics from collected records, record the exact time window or
-returned-sample bounds, population and exclusions, and calculation method
-(including numerator/denominator for rates). For a latest-N sample, do not
-describe the result as a fixed 30/90-day rate unless the selected records
-actually span that calendar interval. Record duration calculation and failed
-deployment-to-next-success matching rules for any recovery proxy. Do not retain
-individual `DeployedBy` names; at most record an aggregate count/distribution
-when needed, with the population and window stated. Do not make DORA maturity or
-health judgments.
+For each environment, record deployment count/frequency; calculate failure rate as `FailureEncountered: true / total deployments` and mean duration from task start/completion. State calendar window or latest-N sample, population/exclusions, numerator/denominator; never label a latest-N sample a 30/90-day rate. Label failure-to-next-success intervals as recovery proxies. Omit individual `DeployedBy` names. No DORA classification.
 
 ### 1.7 Runbooks (Operational Playbook Coverage)
 
@@ -166,10 +153,7 @@ octopus_get "$OCTOPUS_URL/api/{space}/projects/{id}/runbooks" | jq '.Items | map
   })'
 ```
 
-Record runbook names and sanitized descriptions only as needed to identify
-whether the queried project has runbooks for rollback, restart, secret
-rotation, database maintenance, or disaster recovery. Absence within this
-queried scope is a source fact, not a finding.
+Record names and concise sanitized descriptions only as needed to identify rollback, restart, secret rotation, database maintenance, or disaster-recovery coverage. Absence in queried scope is a source fact, not a finding.
 
 ### 1.8 Variables (Schema Only — No Values)
 
@@ -184,7 +168,7 @@ octopus_get "$OCTOPUS_URL/api/{space}/variables/{variableSetId}" \
     }'
 ```
 
-**Strict rule: collect only variable names when strictly necessary, sensitivity flag, and scope. Never collect or persist `.Value`, including values marked non-sensitive.** Do not infer sensitivity from a name, and do not infer value contents from schema. Record schema observations only; any later inspection of a suspected unsafe value requires separate safe verification.
+Collect only necessary variable names, sensitivity flags, and scope. Never read or persist `.Value`, even for non-sensitive variables; do not infer sensitivity or contents from names/schema. Any later suspected-unsafe-value check requires separate safe verification.
 
 ### 1.9 Targets / Deployment Surface
 
@@ -193,10 +177,7 @@ octopus_get "$OCTOPUS_URL/api/{space}/machines/all" \
   | jq 'map({Name, Status, HealthStatus, Roles, EnvironmentIds, IsDisabled, Endpoint: .Endpoint.CommunicationStyle})'
 ```
 
-Capture a sanitized deployment-surface type, status/health state, and
-environment association. Do not retain sensitive hostnames, account identifiers,
-or machine details. Whether disabled or unhealthy targets are in the active
-path is strategist analysis and must be supported by scoped observations.
+Capture sanitized surface type, status/health, and environment association; omit hostnames, account IDs, and machine details. Strategist analysis determines whether disabled/unhealthy targets are active, supported by scoped evidence.
 
 ### 1.10 Subscriptions / Notifications
 
@@ -204,10 +185,7 @@ path is strategist analysis and must be supported by scoped observations.
 octopus_get "$OCTOPUS_URL/api/{space}/subscriptions/all" | jq 'map({Name, Type, EventNotificationSubscription})'
 ```
 
-Record configured subscription/event types and sanitized destination categories
-only (for example, chat, email, incident management); omit recipient addresses,
-webhooks, and payloads. Whether alert coverage is sufficient is strategist
-analysis.
+Record subscription/event types and sanitized destination categories only (e.g. chat, email, incident management); omit addresses, webhooks, and payloads. Alert-coverage assessment belongs to strategist synthesis.
 
 ---
 
@@ -225,33 +203,23 @@ Look for these files in the target repo (or a sibling repo if the user provides 
 .octopus/<project-slug>/channels/*.ocl
 ```
 
-OCL is HCL-flavored. Read each applicable file once and record the defined
-state using sanitized facts matching the relevant Tier 1 observation
-boundaries (deployment process, channels, runbooks, and variable schema only).
-Preserve file path and line/source locator in each record. Never persist
-variable values.
+OCL is HCL-flavored. Read each applicable file once; record sanitized defined state for deployment process, channels, runbooks, and variable schema, with file/line locators. Never persist variable values.
 
-If multiple candidate CaC project directories or sibling-repository paths are
-plausible and the approved scope does not resolve them, do not choose or inspect
-one by inference. Record the affected source inventory as `BLOCKED`, create an
-`UNVERIFIED` record, and return the structured clarification handoff below to
-the strategist/launcher. The strategist/launcher asks the user and invokes a
-targeted collector continuation with the sanitized answer. In headless or
-skip-interview mode, leave it blocked and needing clarification.
+If multiple CaC directories or sibling repos are plausible, do not infer which to inspect. Mark inventory `BLOCKED`, create an `UNVERIFIED` record, and hand off the exact question ("Which CaC project directory or sibling repository should I inspect: <candidate list>?"). The strategist/launcher asks and invokes a targeted continuation; headless/skip-interview stays blocked.
 
-Note that CaC files give you the **defined** state but not the **observed** state — you won't see deploy frequency, failure rate, or current target health from CaC alone. Record these metric source families as unavailable in Tier 2 in the evidence inventory, with the bounded reason; do not infer them from configuration.
+CaC gives defined, not observed, state. Record deployment frequency, failure rate, and current target health as unavailable in Tier 2; never infer them from configuration.
 
 ---
 
 ## Tier 3: Structured Questionnaire (Fallback)
 
-Triggered when both Tier 1 and Tier 2 are unavailable. The collector does not ask the user. It records the questionnaire source inventory as `BLOCKED` (or `SKIPPED` when explicitly skipped), adds an `UNVERIFIED` evidence record for each unresolved question, and returns a structured question handoff to the strategist/launcher. The strategist/launcher asks the questions via `AskUserQuestion` in batches of 3–4, then invokes a targeted collector continuation with the sanitized answers. Record each supplied answer as a `USER-REPORTED` source observation in `evidence.md`, with the exact question as the source reference and a concise paraphrase of the answer. If the run is headless or interview is skipped, leave the blocker and mark it as needing clarification; do not infer an answer or mark the source complete.
+When Tier 1 and 2 are unavailable, do not interview. Mark the questionnaire `BLOCKED` (or `SKIPPED` if opted out), add `UNVERIFIED` records, and return exact questions in the handoff. The strategist/launcher asks in batches of 3–4 and invokes targeted continuation. Record answers as concise `USER-REPORTED` observations sourced to the exact question. Headless/skip-interview stays unresolved; do not infer or mark complete.
 
-For each pending clarification, the collector handoff must include:
+For each clarification, return:
 
 ```yaml
 clarification:
-  source_family: octopus-project-selection | octopus-questionnaire
+  source_family: octopus-project-selection | octopus-cac-selection | octopus-questionnaire
   inventory_status: BLOCKED | SKIPPED
   evidence_status: UNVERIFIED
   exact_question: <one exact user-facing question>
@@ -292,102 +260,8 @@ clarification:
 
 ## Output: source evidence in `evidence.md`
 
-Write all collected Octopus observations and source inventory rows to
-`<target-repo>/cd-discovery/evidence.md`, following the canonical structure and
-`SRC-` schema in `EVIDENCE-LEDGER.md`. Do not emit a weave map, dimension-tagged
-findings, maturity levels, severity, or recommendations. Preserve only the raw
-evidence minimum needed for attributable analysis: summarize configuration
-states, bounded counts, and sanitized step/action facts instead of copying full
-API responses, task error messages, alert bodies, or unnecessary identifiers.
+Write sanitized Octopus source observations and inventory to `evidence.md` under `EVIDENCE-LEDGER.md`. Cite precise resource/file/question and filters; include scope, access context, bounds, and limitations. Metrics state time/sample window, population, calculation, numerator/denominator, and sample limits. Do not infer metrics from CaC or unobserved data, or retain full API responses, task errors, alert bodies, or unnecessary identifiers.
 
-For every source family attempted, record inventory status (`COMPLETE`,
-`PARTIAL`, `BLOCKED`, `SKIPPED`, `NOT_APPLICABLE`, or `MISSING`), scope,
-sanitized access context, and limitation/reason. User answers are `USER-REPORTED`
-evidence records, not inventory statuses. Each observation cites
-the precise resource/file/question and relevant filters, includes access
-context, and states its scope. Metrics must explicitly state time window,
-population, and calculation method, including numerator/denominator and
-sampling limits. Do not infer metrics from CaC or unobserved data.
+### Interpretation boundary
 
-Example source observation (illustrative; use actual observed values and date):
-
-```markdown
-#### SRC-octopus-prod-deployment-outcomes — production deployment outcomes
-- Status: VERIFIED
-- Freshness: CURRENT
-- Scope: sanitized project alias `project-a`; production; latest-50 deployment sample as of 2026-11-13 (not a fixed calendar window); 20 completed deployments; count `FailureEncountered: true`; fraction = 3 / 20 completed deployments.
-- Source: api — deployment list filtered by the selected project, `take=50`; task state fetched for each returned deployment.
-- Observed: 2026-11-13
-- Access context: Octopus Tier 1 API, sanitized selected-space alias, read access.
-- Supports: true
-- Limitations: Limited to the returned latest-50 sample; only completed production deployments were included in the denominator.
-- Related IDs: none
-```
-
-### Collection ownership and handoff
-
-`cd-evidence-collector` performs each applicable API request, CaC inspection,
-or questionnaire capture once. Specialists receive only relevant sanitized
-observations and `SRC-` references from `evidence.md`; they do not call the
-Octopus API, inspect already-collected CaC files again, or broaden collection.
-If needed evidence is absent, return it to the strategist as a structured
-clarification handoff. The strategist/launcher asks the user and may invoke a
-targeted collector continuation with the sanitized answer; the collector does
-not ask the user. A headless or skip-interview run leaves the source `BLOCKED`
-or `SKIPPED` and the evidence `UNVERIFIED`, with the exact question marked as
-needing clarification. Specialists do not query sources independently. After specialist results return,
-the strategist validates and appends the separate `CI-`, `REL-`, and `FLOW-`
-analyst findings under `## Analyst findings` in the same document, citing source
-IDs and reconciling duplicate claims.
-
-### Evidence routing boundaries
-
-The collector records source facts once. When useful, the strategist may route
-the already-collected observations to specialists within these boundaries:
-
-| Collected Octopus evidence | Optional evidence-only agent | Routing boundary |
-|---|---|---|
-| Deployment process, lifecycle phases, approval/manual-intervention gates, channels that constrain release eligibility, post-deploy checks, runbooks, promotion and recovery controls | `release-safety-recovery` (`REL-` records) | Release/process/lifecycle/runbook/promotion/recovery evidence after artifact handoff. |
-| Deployment and task history, actual outcomes, and measured frequency/duration/failure/recovery intervals | `delivery-metrics-flow` (`FLOW-` records) | Observed history and outcomes only; scope population, time bounds, calculation, and limitations. |
-| CI/build/package/artifact details | `ci-artifact-integrity` (`CI-` records) | Only when collected Octopus evidence directly establishes the producer-side artifact handoff or its identity; do not duplicate CI repository scans. |
-
-### Preserved synthesis nuance
-
-The following are strategist interpretation rules, not collector output.
-Build-once-promote-the-same-artifact is the load-bearing CD principle. When
-evidence establishes a single build per commit, an immutable tag promoted
-unchanged through environments, and a deploy step that reads the build tag,
-the strategist may name it as a Strength to Protect. Rebuilding per
-environment, allowing a mutable tag to reach production, or retagging at deploy
-is a serious Deployment concern regardless of other strengths. Build-once with
-config swapped at deploy (identical artifact bytes; runtime configuration
-changed by deployment) is acceptable and must retain that nuance. The evidence
-records only observed facts; it does not label severity or strength.
-
-### Authentication and sensitive-data rules (preserved)
-
-- Tier 1 API: supply `OCTOPUS_API_KEY` only via approved runtime secret or
-  environment injection, and pass it to curl through stdin configuration, never
-  process arguments. Never type it into shell history, prompts, files, terminal
-  output, `evidence.md`, memory, or reports. If an attempt fails, record only
-  the failure mode (4xx, 5xx, network), never the key.
-- Variable collection is schema-only. Never collect or persist `.Value`, even
-  transiently in output; record names only when necessary, sensitivity flag,
-  and scope. Do not expose secret-like variable identifiers unnecessarily.
-- Never store alert payloads, task error messages, sensitive identifiers, or
-  unnecessary deployment/user data. Use aggregate counts and narrow sanitized
-  references.
-
----
-
-## Quality Gate
-
-Before declaring Octopus source collection complete, verify:
-- ✅ Every applicable source family recorded in `<target-repo>/cd-discovery/evidence.md` inventory with status, attempted scope, sanitized access context, and limitation/reason
-- ✅ Source observations use stable `SRC-` IDs and the `EVIDENCE-LEDGER.md` source-record schema
-- ✅ Selected space/project and selection basis recorded without exposing unnecessary identifiers
-- ✅ Lifecycle phase order, promotion settings, and deployment-process actions recorded as scoped source facts when accessible
-- ✅ Metrics record the time window, population, calculation method, numerator/denominator, and sample limits; CaC-only gaps are explicit
-- ✅ Specialist handoff uses only existing sanitized observations and `SRC-` IDs; no source is queried or inspected twice
-- ❌ No API key, secret/sensitive variable value, full task error, alert payload, or unnecessary sensitive identifier is present in `evidence.md` or agent memory
-- ❌ No final maturity, severity, recommendation, or dimension-tagged weave map is emitted by the collector
+Route only relevant collected evidence: deployment/lifecycle/runbook controls to release analysis, observed deployment/task metrics to flow analysis, and direct producer-side artifact handoff to CI analysis. Analysts consume evidence and IDs; they do not query sources. Build-once/promote unchanged is a strength; per-environment rebuilds, mutable production tags, or retagging are serious concerns. Identical artifact bytes with runtime config swapped at deploy are acceptable with that qualification. These are strategist interpretations, not collection labels.

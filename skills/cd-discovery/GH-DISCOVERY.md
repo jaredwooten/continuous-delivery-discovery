@@ -1,16 +1,6 @@
 # GitHub Repository Posture Sub-Playbook
 
-Use this sub-playbook when the repository is hosted on **GitHub** and the discovery scan needs GitHub-side state not visible from `.github/workflows/` alone: branch protection, security alert backlog, workflow execution reality, PR cadence, and repository security feature state.
-
-This is the single GitHub collection protocol, owned and executed by
-`cd-evidence-collector`. It writes sanitized, attributable raw source
-observations and a source inventory to the canonical
-`<target-repo>/cd-discovery/evidence.md`, following `EVIDENCE-LEDGER.md`.
-Use stable `SRC-` IDs for source observations; do not use analyst finding IDs
-(`CI-`, `REL-`, `FLOW-`) for collected facts. Specialists consume the collected
-evidence and must not repeat queries or broaden the scan. After specialist
-results return, the strategist appends the separate analyst findings section
-to the same `evidence.md` and performs assessment and report synthesis.
+Use when GitHub-side state is needed beyond the `.github/workflows/` scan: branch protection, security alerts/features, workflow execution, and PR cadence. This is the collector's single read-only GitHub protocol; write sanitized source observations to `evidence.md` under the `EVIDENCE-LEDGER.md` contract.
 
 ## When to run
 
@@ -21,7 +11,9 @@ The launcher (`SKILL.md`) decides. The sub-playbook is in scope when:
   - `gh auth status` succeeds (run **Tier 1**)
   - `gh auth status` fails (offer **Tier 2 questionnaire** or skip)
 
-The destructive-action guard `~/.claude/hooks/github-destructive-guard.sh` is active and will block any non-GET `gh api`, any mutating `gh` subcommand, and any non-GET curl against `api.github.com` / `uploads.github.com`. Tier 1 below is GET-only by design, so the guard should not fire. If it does, stop and reconsider.
+Suppress `gh auth status` output; use its exit status only.
+
+Tier 1 is GET-only. If the destructive-action guard blocks a request, stop and reconsider.
 
 ```
 Tier 1: gh CLI authenticated (highest fidelity)
@@ -29,7 +21,7 @@ Tier 1: gh CLI authenticated (highest fidelity)
 Tier 2: Structured questionnaire (lowest fidelity, human memory)
 ```
 
-There is no Tier 3 because GitHub's "config-as-code" surface (`.github/workflows/`, `.github/dependabot.yml`, `CODEOWNERS`) is already covered by the main playbook's codebase scan.
+There is no Tier 3: GitHub config-as-code is covered by the main playbook scan.
 
 ## Inputs
 
@@ -40,7 +32,7 @@ Inputs come from the launcher / environment, in priority order: flag → env var
 | Skip GitHub discovery | `--skip-github` | `GH_DISCOVERY_SKIP=1` | run if gh authenticated |
 | Override repo identity | `--gh-repo <owner/name>` | `GH_DISCOVERY_REPO` | infer from `git remote get-url origin` |
 
-**Never store** auth tokens, full alert payloads, or PR body content in agent memory or `evidence.md`. The collector records sanitized source observations in `evidence.md`; it does not persist conclusions or findings in memory.
+Never store auth tokens, full alert payloads, or PR body content.
 
 ---
 
@@ -49,11 +41,11 @@ Inputs come from the launcher / environment, in priority order: flag → env var
 ### 1.1 Preflight — identity transparency
 
 ```bash
-gh auth status
+gh auth status >/dev/null 2>&1
 gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,visibility,viewerPermission
 ```
 
-Check `viewerPermission` before continuing. If it is below `READ`, abort collection and record the source as `BLOCKED` with `[INSUFFICIENT PERMISSIONS]` in the evidence document. The collector reports a sanitized authentication/access status to the strategist; do not disclose the authenticated username or persist it in reports/evidence.
+Check `viewerPermission`; below `READ`, stop and mark the source `BLOCKED` (`[INSUFFICIENT PERMISSIONS]`). Report sanitized access status only; never disclose or persist the authenticated username.
 
 Resolve repo owner/name from `gh repo view`. Resolve the default branch from `defaultBranchRef.name`.
 
@@ -130,26 +122,30 @@ Captures whether CodeQL default-setup is configured, which languages, the schedu
 
 Each alert query is capped at the first **two paginated pages (200 alerts)**. If the response contains exactly 200 items, record "200+ — pagination capped" with the count. Record aggregate counts only, the query cap, and observation date; do not retain alert details or classify the backlog. Build the aggregate in the query pipeline; never write intermediate raw alert responses to disk or memory.
 
-**Note on `jq` + `--paginate`:** `gh api --paginate` emits **one JSON array per page** (concatenated, not merged). So `jq 'limit(200; .[])'` applied directly fails — it only sees the first page's array. The fix is `jq --slurp 'add | limit(200; .[])'` (or `-s 'add | ...'`), which first reads all pages into a single outer array, then `add` concatenates the inner arrays into one flat list before `limit` runs.
+Fetch only pages 1 and 2, then aggregate their arrays:
 
 ```bash
+gh_alert_pages() {
+  for page in 1 2; do gh api "$1&per_page=100&page=$page"; done
+}
+
 # Dependabot
-gh api "repos/{O}/{R}/dependabot/alerts?state=open&per_page=100" --paginate \
+gh_alert_pages "repos/{O}/{R}/dependabot/alerts?state=open" \
   | jq -s 'add | limit(200; .[]) | .security_advisory.severity' \
   | sort | uniq -c
 ```
 
 ```bash
 # Code scanning
-gh api "repos/{O}/{R}/code-scanning/alerts?state=open&per_page=100" --paginate \
+gh_alert_pages "repos/{O}/{R}/code-scanning/alerts?state=open" \
   | jq -s 'add | limit(200; .[]) | (.rule.security_severity_level // .rule.severity)' \
   | sort | uniq -c
 ```
 
 ```bash
 # Secret scanning
-gh api "repos/{O}/{R}/secret-scanning/alerts?state=open&per_page=100" --paginate \
-      | jq -s 'add | limit(200; .[]) | .secret_type' \
+gh_alert_pages "repos/{O}/{R}/secret-scanning/alerts?state=open" \
+  | jq -s 'add | limit(200; .[]) | .secret_type' \
   | wc -l
 ```
 
@@ -247,35 +243,15 @@ Record relevant matches as source observations in `evidence.md` with file/line r
 
 ---
 
-## Collection ownership and handoff
+## Evidence handoff
 
-`cd-evidence-collector` performs every applicable GitHub CLI/API query in this
-protocol once, then records the result in `<target-repo>/cd-discovery/evidence.md`.
-The source inventory records each source family as `COMPLETE`, `PARTIAL`,
-`BLOCKED`, `SKIPPED`, `NOT_APPLICABLE`, or `MISSING`, with attempted scope,
-sanitized access context, and limitation/reason. User answers are `USER-REPORTED`
-source records, not inventory statuses. Use the record schema in
-`EVIDENCE-LEDGER.md`; each source observation must cite a narrow
-resource/query or file reference and include observed date, access context,
-scope, and limitations. For metrics, scope the time window, population, and
-calculation method (including numerator/denominator) explicitly. Do not record
-interpretations, maturity, severity, recommendations, or a dimension-tagged
-weave map.
-
-Specialists receive only the relevant sanitized evidence and `SRC-` references
-from this document. They do not call GitHub or rerun collection. If a necessary
-fact is absent, mark it as a bounded gap for the strategist; do not broaden the
-query independently. The strategist later validates and appends specialist
-`CI-`, `REL-`, and `FLOW-` analyst records under `## Analyst findings` in the
-same `evidence.md`, reusing the source references and avoiding duplicate
-claims. GitHub alert counts may be assessed by the strategist after collection;
-the collector records counts and limits only.
+Run each applicable query once. Record source inventory and neutral `SRC-` observations using `EVIDENCE-LEDGER.md`; metrics include time/sample bounds, population, and calculation/denominator. Specialists use these records without re-querying; absent facts remain bounded gaps for strategist synthesis.
 
 ---
 
 ## Tier 2: Structured Questionnaire
 
-Triggered when `gh` is unavailable or unauthenticated but the user still wants GitHub evidence. The collector returns the exact questionnaire as a structured clarification handoff and does not ask the user. The top-level skill presents it via `AskUserQuestion` in batches of 3–4, then invokes a targeted collector continuation with sanitized answers. A headless/skip-interview run leaves the source family `BLOCKED` or `SKIPPED` as appropriate, with the unresolved question recorded. Record each supplied answer as a concise, sanitized `USER-REPORTED` source observation in `evidence.md`, with the question as the source reference and observed date; avoid unnecessary personal or sensitive details.
+If `gh` is unavailable or unauthenticated and GitHub evidence is still requested, return the exact questions below to the top-level skill as a clarification handoff; do not interview the user. The top-level skill asks in batches of 3–4 and invokes a targeted continuation with sanitized answers. In headless/skip-interview runs, leave the source `BLOCKED` or `SKIPPED` and unresolved. Record answers as concise `USER-REPORTED` observations, sourced to the question and date.
 
 ### Batch A — Gating
 
@@ -300,101 +276,14 @@ Triggered when `gh` is unavailable or unauthenticated but the user still wants G
 
 ---
 
-## Strategist framing rule — interpreting branch protection in context
+## Strategist interpretation
 
-> **Missing branch protection on a main/default branch is only a finding when the rest of the pipeline has poor or missing feedback loops.**
+Missing default-branch protection is a finding only when feedback loops are weak elsewhere. Trunk-based development may legitimately commit directly to main; assess required checks, deploy alerts, rollback, deploy frequency, and post-deploy verification before assigning severity. Document the reasoning in synthesis (see `PLAYBOOK.md`).
 
-Trunk-based development legitimately commits directly to main; some teams use short-lived PRs into main with branch protection, others don't. The collector records the **state**; the strategist interprets severity by surveying the rest of the pipeline first.
-
-Before classifying any branch-protection finding as HIGH:
-
-- Are there required CI checks at any stage (status checks, pre-commit hooks, deploy-stage smoke gates)?
-- Does a failed deploy alert someone within minutes?
-- Is there an automated rollback path (canary, blue-green, single-click runbook)?
-- Is the deploy frequency high enough that bad commits surface in minutes, not days?
-- Is there meaningful post-deploy verification?
-
-If most answers are "yes", missing branch protection is **information**, not a finding.
-If most answers are "no", missing branch protection becomes a high-severity gap.
-
-The strategist documents the reasoning in the Cross-Stitch section so the reader can audit the severity call.
-
-### Strategist framing rule — artifact-centricity (parallel)
-
-Parallel to the branch-protection rule: build-once-promote-the-same-artifact is the load-bearing CD principle. When §1.13 of the main playbook verifies it is in place (single image build per commit, immutable tag, deploy step reads tag from the build rather than constructing it), the strategist may name it as a **Strength to Protect** in the Cross-stitch section, with explicit warnings about what would regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When it is absent, the strategist weighs it as a Deployment Automation concern — re-testing per environment defeats the confidence model that CD depends on.
-
-Build-once-with-config-swap-at-deploy (identical artifact bytes; runtime config swapped by the deploy step) is acceptable but must be framed as an asterisk so future readers don't confuse it with a full violation.
+Artifact-centricity is strategist synthesis: build once and promote the same immutable artifact; per-environment rebuilds, mutable production tags, or retagging at deploy are concerns. Identical artifact bytes with runtime config swapped at deploy are acceptable with that qualification. See `PLAYBOOK.md` §1.13.
 
 ---
 
-## Output: source evidence in `evidence.md`
+## Evidence output
 
-Write all collected GitHub observations and source inventory rows to
-`<target-repo>/cd-discovery/evidence.md`, following the canonical structure and
-`SRC-` schema in `EVIDENCE-LEDGER.md`. Do not emit a weave map, dimension-tagged
-findings, maturity levels, severity, or recommendations. Preserve only the raw
-evidence minimum needed for attributable analysis; summarize counts and
-configuration states rather than copying full alert, workflow-run, or PR
-payloads. For alert data, record bounded aggregate counts and the query cap,
-without alert bodies or identifying alert details.
-
-Example source observation (illustrative; use actual observed values and date):
-
-```markdown
-### SRC-gh-required-checks-main
-#### SRC-gh-required-checks-main — required status check configuration
-- Status: VERIFIED
-- Scope: `acme/payments`, default branch `main`; required status checks.
-- Source: api — `GET repos/acme/payments/branches/main/protection`; required status checks.
-- Observed: 2026-11-13
-- Access context: GitHub CLI Tier 1, authenticated read-only repository access.
-- Supports: true
-- Limitations: Only the default branch was examined for this observation.
-- Related IDs: none
-```
-
-The framing rules below remain synthesis guidance for the strategist, not
-collector output. A missing protection setting is a state observation; whether
-it is a gap and its severity depend on the wider feedback loops. Likewise,
-artifact-centricity conclusions and Strengths to Protect belong to strategist
-synthesis after the relevant source evidence has been reviewed.
-
-### Authentication preflight (preserved)
-
-Before any `gh` CLI call, check authenticated access and `viewerPermission`.
-Report only a sanitized access status and permission sufficiency to the
-strategist. Do not print or persist the authenticated username, and never echo
-auth tokens to `evidence.md`, memory, or terminal output.
-
----
-
-## Strategist synthesis notes
-
-Collected GitHub evidence commonly informs Build & CI, Testing, Security, and
-Release Process. The strategist integrates it into the capability matrix after
-specialist results, applies the branch-protection and artifact-centricity
-framing rules above, and records analyst findings in the separate analyst
-section of `evidence.md`. Do not ask specialists to revisit GitHub sources that
-this protocol already collected.
-
----
-
-## Quality Gate
-
-Before declaring GitHub source collection complete:
-
-- ✅ Every applicable GitHub source family recorded in `<target-repo>/cd-discovery/evidence.md` inventory with status, attempted scope, sanitized access context, and limitation/reason
-- ✅ Source observations use stable `SRC-` IDs and the `EVIDENCE-LEDGER.md` source-record schema
-- ✅ Authentication and sufficient `viewerPermission` checked; only sanitized access status recorded
-- ✅ Default branch identified and its protection state recorded
-- ✅ Secondary branches in workflow filters checked
-- ✅ Security feature state captured (AGS, secret scanning, CodeQL, Dependabot updates)
-- ✅ Alert counts summarized by severity (Dependabot + CodeQL + secret scanning)
-- ✅ Workflow execution reality captured (success rates + dormant/stale workflows)
-- ✅ PR cadence + base-branch distribution captured
-- ✅ Branch-protection and artifact-centricity source facts are recorded neutrally; framing belongs to strategist synthesis
-- ✅ Artifact-provenance greps executed (cosign / SBOM / attestation, dependency cache coverage, install-command hygiene, build-once signals)
-- ✅ Metrics record the time window, population, and calculation method, including denominators and sampling/cap limits
-- ✅ Specialist handoff uses only existing sanitized observations and `SRC-` IDs; no GitHub source is queried twice
-- ❌ **No** auth tokens, alert bodies, full PR content, or sensitive values are stored in `evidence.md` or agent memory
-- ❌ **No** final maturity, severity, recommendations, or dimension-tagged weave map is emitted by the collector
+Write sanitized source facts, aggregate alert counts, and inventory rows to `<target-repo>/cd-discovery/evidence.md` using `EVIDENCE-LEDGER.md`. Do not persist credentials, alert details, or full PR content; interpretation and assessment belong to strategist synthesis.

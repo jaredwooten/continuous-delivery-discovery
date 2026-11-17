@@ -19,7 +19,7 @@
 - **ID:** `{stable-id}` (for example, `CI-required-checks-default-branch`, `REL-production-approval-gate`, or `FLOW-deploy-frequency-production`)
   - **Claim:** {one concise, atomic statement of what evidence establishes or fails to establish}
   - **Owner:** {one worker or strategist identifier responsible for this complete finding record}
-  - **Status:** {VERIFIED | PARTIAL | MISSING | USER-REPORTED | UNVERIFIED | NOT-APPLICABLE | BLOCKED | CONFLICTED}
+  - **Status:** {VERIFIED | PARTIAL | MISSING | BLOCKED | SKIPPED | USER-REPORTED | UNVERIFIED | NOT-APPLICABLE | CONFLICTED}
   - **Confidence:** {HIGH | MED | LOW} — {confidence reason; evidence quality/directness, not impact}
   - **Scope:** {repository/system, branch/environment/component, filters; for metrics include time window, population, and calculation}
   - **Sources:**

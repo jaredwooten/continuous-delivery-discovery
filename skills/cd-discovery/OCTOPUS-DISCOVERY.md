@@ -1,8 +1,10 @@
 # Octopus Deploy Discovery Sub-Playbook
 
-Use this sub-playbook when the repository is deployed via **Octopus Deploy** and the orchestrator is not visible from the codebase alone. It produces a **weave map** — a structured list of evidence items tagged with discovery tier and target dimension(s) — that gets folded into the `findings.md` file for the strategist to integrate into the capability matrix.
+Use when the repository deploys through Octopus Deploy and the orchestrator is not visible from the codebase alone. This is the collector's single Octopus protocol; write sanitized source observations to `evidence.md` under `EVIDENCE-LEDGER.md`.
 
 The sub-playbook tries three sources in order. Stop at the first one that succeeds — do not double-collect.
+
+Run each applicable API, CaC, or questionnaire collection once. Keep only sanitized evidence-minimum facts; never save raw responses or intermediate payloads. Specialists consume collected evidence without repeating queries; the strategist handles findings and synthesis.
 
 ```
 Tier 1: REST API (highest fidelity)
@@ -14,40 +16,50 @@ Tier 3: Structured questionnaire (lowest fidelity, human memory)
 
 ## Inputs
 
-The skill launcher passes any of the following (in priority order: flag → env var → omit):
+Inputs follow flag → environment → omit, except the API key, which is supplied only through approved runtime secret/environment injection:
 
 | Input | Flag | Env var | Required |
 |-------|------|---------|----------|
 | Octopus server URL | `--octopus-url` | `OCTOPUS_URL` | Tier 1 only |
-| API key | `--octopus-api-key` | `OCTOPUS_API_KEY` | Tier 1 only |
+| API key | **No command-line flag** | `OCTOPUS_API_KEY` | Tier 1 only |
 | Space ID or name | `--octopus-space` | `OCTOPUS_SPACE` | Tier 1 only |
 | Project name(s) | `--octopus-project` | `OCTOPUS_PROJECT` | optional filter |
 
-**Never echo the API key to the terminal, the report, or memory.** Pass it via the `X-Octopus-ApiKey` header only. If a Tier 1 attempt fails, log the failure mode (4xx, 5xx, network) without the key value.
+Never accept, type, or persist the API key in flags, prompts, commands, history, files, or output. Supply it to curl only via stdin config (never argv, including `-H`); on failure record only the mode (4xx, 5xx, network).
 
 ---
 
 ## Tier 1: REST API Scan
 
-Use `curl` (already available) with the API key in the `X-Octopus-ApiKey` header. All endpoints below are relative to `${OCTOPUS_URL}/api`. Replace `{space}` with the resolved space ID (e.g. `Spaces-1`).
+Use this helper for every Tier 1 request. The key must already be in the environment via approved secret injection; do not export it in a command. Do not enable shell tracing or curl verbose/trace output. Endpoints use `${OCTOPUS_URL}/api`; replace `{space}` with the resolved space ID.
+
+```bash
+octopus_get() {
+  local url=$1
+  curl --silent --show-error --config - <<EOF
+header = "X-Octopus-ApiKey: ${OCTOPUS_API_KEY}"
+url = "${url}"
+EOF
+}
+```
+
+Pass the URL to `octopus_get`; do not add a key header to its invocation.
 
 ### 1.1 Resolve Space
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/spaces/all" | jq '.[] | {Id, Name, IsDefault}'
+octopus_get "$OCTOPUS_URL/api/spaces/all" | jq '.[] | {Id, Name, IsDefault}'
 ```
 
-If `--octopus-space` matches an `Id` or `Name`, use that. Otherwise pick the default space and note the assumption in the report.
+Use a matching `Id`/`Name`; otherwise use the default and record that assumption.
 
 ### 1.2 Locate the Project(s)
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/projects/all" | jq '.[] | {Id, Name, Slug, LifecycleId, IsDisabled, IsVersionControlled}'
+octopus_get "$OCTOPUS_URL/api/{space}/projects/all" | jq '.[] | {Id, Name, Slug, LifecycleId, IsDisabled, IsVersionControlled}'
 ```
 
-Match against `--octopus-project` (substring or exact). If not provided, infer the project(s) by repository name match (e.g., `mi-portal` → projects whose slug or name contains `market-insights`, `mi-portal`, `mi-api`, `mi-web`). List candidates and confirm with the user via `AskUserQuestion` if ambiguous.
+Match `--octopus-project` exactly or by substring. Without it, repository-name matching only identifies candidates. If ambiguous, do not choose or interview: mark inventory `BLOCKED`, record an `UNVERIFIED` selection with exact candidates and a generated question ("Which project should I inspect: <candidate list>?") in the handoff, and stop project-specific collection. The strategist/launcher asks and starts a targeted continuation; record the selected project and basis afterward.
 
 For each matched project, capture:
 - `Id`, `Name`, `Slug`, `IsDisabled`, `IsVersionControlled` (CaC enabled?)
@@ -57,8 +69,7 @@ For each matched project, capture:
 ### 1.3 Deployment Process
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/deploymentprocesses/{id}" | jq '{
+octopus_get "$OCTOPUS_URL/api/{space}/deploymentprocesses/{id}" | jq '{
     Steps: .Steps | map({
       Name, StartTrigger, Condition, PackageRequirement,
       ActionTypes: (.Actions | map(.ActionType)),
@@ -77,16 +88,12 @@ Extract per step:
 - **Conditions** — `OnlyIfPriorStepFailed`, `OnlyIfPriorStepSucceeded`, etc. (rollback hints)
 - **Health check or smoke test** steps after a deploy action
 
-Flag if found:
-- No manual-intervention before prod (good or bad depending on team's intent — surface for discussion)
-- Deploy step with no rollback step in the same lifecycle
-- `Octopus.Script` steps doing custom work (write down what they do — these are where logic hides)
+Record whether there is a manual intervention before production, explicit lifecycle rollback, or `Octopus.Script` action. For scripts, retain only a concise sanitized operation description, never contents with credentials, values, or unrelated details.
 
 ### 1.4 Lifecycle & Promotion Rules
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/lifecycles/{id}" | jq '{
+octopus_get "$OCTOPUS_URL/api/{space}/lifecycles/{id}" | jq '{
     Name, Description,
     Phases: .Phases | map({
       Name,
@@ -107,13 +114,12 @@ Capture:
 - `MinimumEnvironmentsBeforePromotion` — ratchet preventing skipping envs
 - **Retention policy** — how many releases / days are kept (matters for rollback window)
 
-This answers the big question from the assessment: "is dev → stage → prod automated or manual?" The `AutomaticDeploymentTargets` list is the authoritative answer.
+Preserve the selected lifecycle/phase scope for automatic deployment targets.
 
 ### 1.5 Channels & Versioning Rules
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/projects/{id}/channels" | jq '.Items | map({
+octopus_get "$OCTOPUS_URL/api/{space}/projects/{id}/channels" | jq '.Items | map({
     Name, IsDefault, LifecycleId,
     Rules: .Rules | map({Tag, VersionRange, ActionPackages})
   })'
@@ -125,76 +131,61 @@ Note channels (e.g. `default`, `hotfix`, `release-candidate`) and their version-
 
 ```bash
 # Last 50 deployments for the project
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/deployments?projects={projectId}&take=50" \
+octopus_get "$OCTOPUS_URL/api/{space}/deployments?projects={projectId}&take=50" \
   | jq '.Items | map({
       Created, EnvironmentId, ReleaseId, TaskId,
-      DeployedBy, FailureEncountered: .FailureEncountered
+      FailureEncountered: .FailureEncountered
     })'
 
 # Resolve task state per deployment for State + Duration
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/tasks/{taskId}" \
-  | jq '{State, FinishedSuccessfully, StartTime, CompletedTime, ErrorMessage}'
+octopus_get "$OCTOPUS_URL/api/{space}/tasks/{taskId}" \
+  | jq '{State, FinishedSuccessfully, StartTime, CompletedTime}'
 ```
 
-Compute:
-- **Deploy frequency per environment** (count by env over the last 30/90 days) — DORA metric #1
-- **Change failure rate** — `FailureEncountered: true` count / total — DORA metric #3
-- **Mean deploy duration** per env — pipeline efficiency
-- **MTTR proxy** — for failed deployments, time until the next successful deployment to the same env — DORA metric #4
-- **Who deploys** — distribution of `DeployedBy` (a single name = bus factor risk; many names = healthy)
+For each environment, record deployment count/frequency; calculate failure rate as `FailureEncountered: true / total deployments` and mean duration from task start/completion. State calendar window or latest-N sample, population/exclusions, numerator/denominator; never label a latest-N sample a 30/90-day rate. Label failure-to-next-success intervals as recovery proxies. Omit individual `DeployedBy` names. No DORA classification.
 
 ### 1.7 Runbooks (Operational Playbook Coverage)
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/projects/{id}/runbooks" | jq '.Items | map({
+octopus_get "$OCTOPUS_URL/api/{space}/projects/{id}/runbooks" | jq '.Items | map({
     Name, Description, EnvironmentScope,
     PublishedRunbookSnapshotId, RunRetentionPolicy
   })'
 ```
 
-Note runbooks for: rollback, restart, secret rotation, DB maintenance, disaster recovery. **Absence of a rollback runbook is a finding.**
+Record names and concise sanitized descriptions only as needed to identify rollback, restart, secret rotation, database maintenance, or disaster-recovery coverage. Absence in queried scope is a source fact, not a finding.
 
 ### 1.8 Variables (Schema Only — No Values)
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/variables/{variableSetId}" \
+octopus_get "$OCTOPUS_URL/api/{space}/variables/{variableSetId}" \
   | jq '{
       Variables: .Variables | map({
         Name,
         IsSensitive,
-        Scope: (.Scope | keys),
-        Source: (if .Value == null and .IsSensitive then "secret" else "config" end)
+        Scope: (.Scope | keys)
       })
     }'
 ```
 
-**Strict rule: only collect variable names, sensitivity flag, and scope. Never collect `.Value` for sensitive variables, and avoid copying any value into the report.** Look for:
-- Sensitive variables that aren't flagged sensitive (Name suggests secret, `IsSensitive: false`)
-- Per-environment overrides for the same variable (signals env divergence)
-- Connection strings hardcoded in non-sensitive variables
+Collect only necessary variable names, sensitivity flags, and scope. Never read or persist `.Value`, even for non-sensitive variables; do not infer sensitivity or contents from names/schema. Any later suspected-unsafe-value check requires separate safe verification.
 
 ### 1.9 Targets / Deployment Surface
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/machines/all" \
+octopus_get "$OCTOPUS_URL/api/{space}/machines/all" \
   | jq 'map({Name, Status, HealthStatus, Roles, EnvironmentIds, IsDisabled, Endpoint: .Endpoint.CommunicationStyle})'
 ```
 
-Capture deployment surface (ECS clusters, Tentacles, SSH targets, k8s clusters, AWS accounts), their health, and which environments they belong to. Disabled or unhealthy targets in the active path are findings.
+Capture sanitized surface type, status/health, and environment association; omit hostnames, account IDs, and machine details. Strategist analysis determines whether disabled/unhealthy targets are active, supported by scoped evidence.
 
 ### 1.10 Subscriptions / Notifications
 
 ```bash
-curl -sS -H "X-Octopus-ApiKey: $OCTOPUS_API_KEY" \
-  "$OCTOPUS_URL/api/{space}/subscriptions/all" | jq 'map({Name, Type, EventNotificationSubscription})'
+octopus_get "$OCTOPUS_URL/api/{space}/subscriptions/all" | jq 'map({Name, Type, EventNotificationSubscription})'
 ```
 
-Note: are deploy failures alerted to Slack/email/PagerDuty? Silent failures are a maturity gap.
+Record subscription/event types and sanitized destination categories only (e.g. chat, email, incident management); omit addresses, webhooks, and payloads. Alert-coverage assessment belongs to strategist synthesis.
 
 ---
 
@@ -212,15 +203,30 @@ Look for these files in the target repo (or a sibling repo if the user provides 
 .octopus/<project-slug>/channels/*.ocl
 ```
 
-OCL is HCL-flavored. Read each file and extract the same structured data as Tier 1.6 (deployment process), 1.5 (channels), 1.7 (runbooks), 1.8 (variable schema only).
+OCL is HCL-flavored. Read each applicable file once; record sanitized defined state for deployment process, channels, runbooks, and variable schema, with file/line locators. Never persist variable values.
 
-Note that CaC files give you the **defined** state but not the **observed** state — you won't see deploy frequency, failure rate, or current target health from CaC alone. Flag in the report that those metrics are unavailable in Tier 2.
+If multiple CaC directories or sibling repos are plausible, do not infer which to inspect. Mark inventory `BLOCKED`, create an `UNVERIFIED` record, and hand off the exact question ("Which CaC project directory or sibling repository should I inspect: <candidate list>?"). The strategist/launcher asks and invokes a targeted continuation; headless/skip-interview stays blocked.
+
+CaC gives defined, not observed, state. Record deployment frequency, failure rate, and current target health as unavailable in Tier 2; never infer them from configuration.
 
 ---
 
 ## Tier 3: Structured Questionnaire (Fallback)
 
-Triggered when both Tier 1 and Tier 2 are unavailable. The launcher (the `cd-discovery` skill) asks these via `AskUserQuestion` before spawning the agent, in batches of 3-4, and passes the answers in. A headless agent never asks them; with no answers supplied, tag the gaps `[NEEDS CLARIFICATION]`. Tag every answer with `[USER-REPORTED]` in the report so confidence is visible.
+When Tier 1 and 2 are unavailable, do not interview. Mark the questionnaire `BLOCKED` (or `SKIPPED` if opted out), add `UNVERIFIED` records, and return exact questions in the handoff. The strategist/launcher asks in batches of 3–4 and invokes targeted continuation. Record answers as concise `USER-REPORTED` observations sourced to the exact question. Headless/skip-interview stays unresolved; do not infer or mark complete.
+
+For each clarification, return:
+
+```yaml
+clarification:
+  source_family: octopus-project-selection | octopus-cac-selection | octopus-questionnaire
+  inventory_status: BLOCKED | SKIPPED
+  evidence_status: UNVERIFIED
+  exact_question: <one exact user-facing question>
+  context: <sanitized candidates or bounded reason the fact is unavailable>
+  continuation_scope: <specific source/question IDs to collect after answer>
+  headless_or_skipped: <true|false>
+```
 
 ### Batch A — Project & Lifecycle
 
@@ -252,60 +258,10 @@ Triggered when both Tier 1 and Tier 2 are unavailable. The launcher (the `cd-dis
 
 ---
 
-## Output: Weave Map
+## Output: source evidence in `evidence.md`
 
-This sub-playbook does **not** produce a self-contained "Deployment Orchestrator" section. Instead, output a **weave map** — a structured list of evidence items, each tagged with the target dimension(s) in `findings.md`. The strategist will drop each item into the relevant dimension section.
+Write sanitized Octopus source observations and inventory to `evidence.md` under `EVIDENCE-LEDGER.md`. Cite precise resource/file/question and filters; include scope, access context, bounds, and limitations. Metrics state time/sample window, population, calculation, numerator/denominator, and sample limits. Do not infer metrics from CaC or unobserved data, or retain full API responses, task errors, alert bodies, or unnecessary identifiers.
 
-### Weave-map format
+### Interpretation boundary
 
-Each line:
-
-```
-{Dimension}: {octopus-resource reference} — {one-line finding} [evidence: Octopus {Tier 1 API | Tier 2 CaC | Tier 3 Questionnaire}, scanned {YYYY-MM-DD}]
-```
-
-Where `{Dimension}` is one of: `Build & CI`, `Testing`, `Deployment`, `Infrastructure as Code`, `Observability`, `Release Process`, `Security`.
-
-Most Octopus findings tag `Deployment`. Findings about manual lifecycle gates, approval phases, or release-coordination overhead tag `Release Process`. Findings about notification gaps or missing deploy markers tag `Observability`.
-
-A finding that legitimately bears on multiple dimensions can appear on multiple lines, one per dimension. Do not invent dimension assignments.
-
-### Example weave map
-
-```
-Deployment: project `web-api`/step 3 "Deploy Web App" — uses immutable build tag from package.json, no per-env retag [evidence: Octopus Tier 1 API, scanned 2026-05-26] [strength-to-protect]
-Deployment: project `web-api` lifecycle `Standard` — Dev auto-promotes; Stage and Prod require manual approval [evidence: Octopus Tier 1 API, scanned 2026-05-26]
-Release Process: project `web-api`/Prod phase has 2 required approvers; no SLA on approval latency [evidence: Octopus Tier 1 API, scanned 2026-05-26]
-Observability: no Slack/Teams notification on prod deploy success or failure [evidence: Octopus Tier 1 API, scanned 2026-05-26]
-```
-
-### Strengths-to-Protect tagging
-
-When a finding represents a load-bearing CD pattern the team is getting right (e.g., build-once-promote, immutable image tags, single-source artifact identity), append `[strength-to-protect]` to the line. The strategist will surface these in `summary.md` under Strengths to Protect rather than under the dimension's gap list.
-
-### Artifact-centricity framing rule (preserved from prior version)
-
-Build-once-promote-the-same-artifact is the load-bearing CD principle. When this sub-playbook finds it in place (single build per commit, immutable tag promoted unchanged through environments, deploy step reads the tag from the build rather than constructing it), emit the finding as a `Deployment` line with `[strength-to-protect]` tagged.
-
-When the discovery finds the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, emit a HIGH-severity `Deployment` line regardless of how green the rest of the pipeline looks.
-
-Build-once-with-config-swap-at-deploy (identical bundle, runtime config swapped) is acceptable but emit the line with an asterisk note in the finding text so future readers understand the nuance.
-
-### Authentication and sensitive-data rules (preserved)
-
-- Tier 1 API: pass `OCTOPUS_API_KEY` via environment variable; never echo to terminal, weave map, memory, or any report file.
-- Variable values, alert payloads, and sensitive identifiers must never appear in the weave map. Summary counts and named findings (e.g., "47 deployments to prod in last 90 days", "step 3 references variable `Database.ConnectionString`") are appropriate; raw values are not.
-
----
-
-## Quality Gate
-
-Before declaring the Octopus discovery complete, verify:
-- ✅ Discovery tier recorded in the output (API / CaC / Questionnaire)
-- ✅ At least one project located and named
-- ✅ Lifecycle phase order + auto-promote map captured
-- ✅ Deployment process steps enumerated with action types
-- ✅ Manual intervention steps surfaced
-- ✅ Rollback story captured (runbook, redeploy, or "none")
-- ✅ Findings cross-referenced into the main capability matrix
-- ❌ No API key, secret value, or sensitive variable value present anywhere in the `cd-discovery/` output files (summary.md, findings.md, suggestions.md), in the weave map, or in agent memory
+Route only relevant collected evidence: deployment/lifecycle/runbook controls to release analysis, observed deployment/task metrics to flow analysis, and direct producer-side artifact handoff to CI analysis. Analysts consume evidence and IDs; they do not query sources. Build-once/promote unchanged is a strength; per-environment rebuilds, mutable production tags, or retagging are serious concerns. Identical artifact bytes with runtime config swapped at deploy are acceptable with that qualification. These are strategist interpretations, not collection labels.

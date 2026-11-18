@@ -2,7 +2,7 @@
 
 Use this sub-playbook when the user has additional context to fold into an existing `cd-discovery/` directory that the automatic scan can't see — e.g., "the Groovy integration tests are abandoned, Octopus invokes Playwright post-Stage instead" or "Prod deploys are human-attended so failure emails are low-value."
 
-The goal: verify everything that can be verified against the codebase and live APIs, then edit the report in place so the capability matrix, detailed findings, anti-patterns, recommendations, and roadmap reflect the new understanding — without losing the audit trail.
+The goal: use the existing report and canonical `cd-discovery/evidence.md`, request targeted recollection when needed, then update the report to reflect the new understanding — without losing collection or report audit trails.
 
 ## When to run
 
@@ -18,10 +18,11 @@ If `cd-discovery/` does not exist, abort and tell the user to run `/cd-discovery
 |-------|--------|
 | Path to existing `cd-discovery/` directory | repo root |
 | User context | inline string, file path, or interactive `AskUserQuestion` capture |
+| Existing `cd-discovery/evidence.md` | prior source inventory, dated collection runs, `SRC-` records, and analyst findings; create the canonical document if absent |
 | Fresh `gh` auth (optional) | `gh auth status` — needed for GitHub-side re-verification |
-| Fresh Octopus API key (optional) | `--octopus-api-key` / `OCTOPUS_API_KEY` — needed for Octopus-side re-verification |
+| Fresh Octopus API access (optional) | `OCTOPUS_URL` and `OCTOPUS_API_KEY` supplied through approved runtime/environment secret injection — needed for Octopus-side re-verification; never pass the key as a CLI flag or in a prompt |
 
-The update path **does not** re-run the full PLAYBOOK / GH-DISCOVERY / OCTOPUS-DISCOVERY scans. It re-uses only the slices needed to verify the user's specific claims.
+The update path **does not** re-run the full PLAYBOOK / GH-DISCOVERY / OCTOPUS-DISCOVERY scans. Reuse prior evidence and request only the slices needed to verify the user's specific claims. The strategist owns scope, consent, interview, and synthesis; it never collects evidence itself. The `cd-evidence-collector` alone performs any targeted recollection and updates `evidence.md`.
 
 ---
 
@@ -32,6 +33,7 @@ Read all markdown files in `cd-discovery/`:
 - `cd-discovery/summary.md` — always present
 - `cd-discovery/findings.md` — always present
 - `cd-discovery/suggestions.md` — present only when `--suggest` was previously run
+- `cd-discovery/evidence.md` — prior source inventory/runs and existing source and analyst records; preserve its history
 
 For each file, build a working memory index that captures:
 
@@ -41,6 +43,7 @@ For each file, build a working memory index that captures:
 - Per-dimension artifacts and gaps (from findings.md)
 - Suggestion items and their dependency edges (from suggestions.md if present)
 - Each file's existing Revision history (so update entries don't duplicate past events)
+- Existing `SRC-` IDs, source freshness/limitations, and analyst finding-to-source references from `evidence.md`
 
 If `cd-discovery/` does not exist, abort with the message: "No cd-discovery/ directory found — run `/cd-discovery` first to generate the baseline, then re-run with `--update`."
 
@@ -56,7 +59,7 @@ Otherwise:
    - "It's in a file — I'll give you the path"
    - "Cancel"
 2. After capturing the raw context, ask **one** batch of up to 4 clarifying questions:
-   - Which dimensions does this touch? (multi-select: Build & CI / Testing / Deployment / IaC / Observability / Release Process / Security / Deployment Orchestrator / GitHub Posture)
+   - Which dimensions does this touch? (multi-select: Build & CI / Testing / Deployment / IaC / Observability / Release Process / Security / external deployment evidence / GitHub evidence woven into dimensions)
    - Is any claim time-sensitive — should I record a specific date in the revision header?
    - Should I downgrade or remove any current findings explicitly, or only add new context?
    - Is fresh `gh` auth or a current Octopus API key available so I can re-verify?
@@ -86,9 +89,11 @@ When a tagged claim touches multiple files, every file in the tag must be edited
 
 ## Phase 4 — Targeted verification
 
-For each claim, attempt verification using the matching slice:
+For each claim, first check whether existing `evidence.md` contains relevant, sufficiently fresh evidence. When new source evidence is required, define the exact requested slice and disposition any out-of-scope or inaccessible source. Send a bounded recollection request to `cd-evidence-collector`, including the target/ref, user-approved systems and scope, relevant paths/claims, exclusions, and applicable playbook procedures. The collector alone performs read-only collection and appends a dated run and source inventory/records to `evidence.md`; the strategist does not run queries or collect sources. Reuse stable `SRC-` IDs for the same enduring claim and scope. Preserve prior evidence and set its separate `Freshness` metadata to `STALE` or `SUPERSEDED` with the replacing `SRC-` ID; retain the evidence `Status` from the allowed enum. Keep conflicting evidence and mark the claim `CONFLICTED` until resolved. If collection is blocked or incomplete, retain that disposition and limitation rather than implying absence.
 
-### CODEBASE claims
+For each claim, the collector uses the matching slice:
+
+### CODEBASE claims — collector only
 Re-run the relevant scan slice from `~/.claude/skills/cd-discovery/PLAYBOOK.md` (Phase 1 sections 1.1–1.13). Examples:
 - "Groovy pack is abandoned" → `grep -rn "IntegrationTests" .github/workflows/ api/ webapp/`
 - "Healthcheck still no-op" → `grep -rn "HealthCheckController" api/`
@@ -123,23 +128,23 @@ Re-run the relevant scan slice from `~/.claude/skills/cd-discovery/PLAYBOOK.md` 
 >
 > Implied action when verified: raise confidence on Deployment Automation; **add a Strengths to Protect entry** naming the specific file:line that implements the build → deploy tag handoff (the load-bearing line) and listing what would silently regress it (parameterizing the tag per env, retag-at-deploy, separate per-env build jobs). Do **not** treat this as a routine "found" — it's the single most defensible asset in the pipeline.
 
-### GITHUB-API claims
+### GITHUB-API claims — collector only
 Re-run the relevant slice from `~/.claude/skills/cd-discovery/GH-DISCOVERY.md`. Only the specific endpoint needed — not the full Tier 1 sweep. Examples:
 - Branch protection claim → `gh api repos/{O}/{R}/branches/{B}/protection`
 - CodeQL alert count → `gh api "repos/{O}/{R}/code-scanning/alerts?state=open&per_page=100" --paginate | jq -s 'add | length'`
 - Dependabot updates toggle → `gh api repos/{O}/{R} --jq '.security_and_analysis.dependabot_security_updates'`
 
-Print the authenticated `gh` user before running so the user can confirm identity. If `gh auth status` fails, skip GitHub verification — tag affected claims `[USER-REPORTED]` and note in the revision header that GitHub-side was not re-scanned.
+Follow the GitHub sub-playbook's read-only preflight and scope rules. If authorization or access is unavailable, the collector records a safe `BLOCKED`/`SKIPPED` disposition and limitation; do not broaden access. User statements remain identified as user-reported unless independently verified.
 
-### OCTOPUS-API claims
+### OCTOPUS-API claims — collector only
 Re-run the relevant slice from `~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md` Tier 1. Examples:
 - "Step 6 invokes Playwright not Groovy" → re-pull the deployment process for the named project (`deploymentprocesses/{id}`)
 - "Subscription state changed" → re-pull `subscriptions/all`
 - "Variable renamed" → re-pull `variables/{variableSetId}`
 
-If no fresh API key is available, skip Octopus verification — tag affected claims `[USER-REPORTED]`, note in the revision header that the Octopus side was not re-scanned, and preserve any prior Octopus operational metrics as vintage data with an explicit date.
+If the key is unavailable, the collector does not request or search for it; it records the API tier as `BLOCKED` and may continue only with an explicitly in-scope, readable CaC source or strategist-supplied user-reported evidence. Preserve prior Octopus evidence as historical, with its observation date and freshness limitation.
 
-**Never echo the Octopus API key. Pass it via `X-Octopus-ApiKey` header only.**
+The collector never echoes the Octopus API key and sends it only via the `X-Octopus-ApiKey` request header as permitted by the Octopus sub-playbook.
 
 ### EXTERNAL claims
 Mark `[USER-REPORTED]` immediately. Cap the affected dimension's confidence at MED — drop to LOW only if the user explicitly says they're unsure.
@@ -175,7 +180,7 @@ If a claim was tagged `CONTRADICTED` in Phase 4 verification, do not apply the u
 
 ## Phase 6 — Append per-file revision log entries
 
-For each file the agent touched in Phase 5, append one entry to that file's bottom `## Revision history` section. Files the agent did not touch get no entry today.
+For each report file touched in Phase 5, append one entry to that file's bottom `## Revision history` section. Files not touched get no entry. For `evidence.md`, retain the collector's append-only dated run and source records; the strategist appends or updates analyst findings without deleting prior runs, records, or findings. Mark superseded source evidence with `Freshness: STALE` or `Freshness: SUPERSEDED`, include its replacement `SRC-` ID, and preserve the original evidence status and limitations.
 
 Each entry uses this format:
 
@@ -214,6 +219,8 @@ Apply this checklist per file the agent touched. If any item fails, do not decla
 - [ ] No whole-file rewrites occurred — every change is a granular Edit.
 - [ ] A new entry was appended to this file's `## Revision history` if any edits landed.
 - [ ] No auth tokens, raw secret values, full alert payloads, or full PR bodies were written to this file or to agent memory.
+- [ ] `evidence.md` retains prior collection runs and records; any replaced source record has `Freshness: STALE` or `Freshness: SUPERSEDED` and is linked to its replacement `SRC-` ID without changing its evidence status.
+- [ ] New recollection, if any, was performed only by `cd-evidence-collector`; strategist and specialists did not repeat collection queries.
 - [ ] Strengths to Protect (summary.md) and Anti-patterns Detected (summary.md) were re-checked if any dimension's level changed.
 
 A passed Quality Gate per touched file is required before Phase 6 entries are considered finalized.

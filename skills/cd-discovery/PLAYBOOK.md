@@ -1,12 +1,22 @@
 # CI/CD Discovery Playbook
 
-Execute this playbook to scan a repository for CI/CD and deployment artifacts, analyze findings against the L0-L4 capability model, and produce the `cd-discovery/` directory of findings.
+Use this playbook to direct bounded collection of CI/CD and deployment evidence into `cd-discovery/evidence.md`, assess the collected observations against the L0-L4 capability model, and produce the `cd-discovery/` reports.
 
 ---
 
 ## Phase 1: Automated Codebase Research
 
-Scan the repository for CI/CD and deployment artifacts across 10 categories. Accumulate findings in memory — do not write files yet.
+The `cd-evidence-collector` scans the approved repository scope for CI/CD and deployment artifacts across the 13 categories below, recording source observations and source dispositions in `cd-discovery/evidence.md`. The strategist defines the collection scope, validates collector completion and safety, then assesses the evidence; it does not scan sources itself. All scan recipes and “read/grep/glob” instructions in Phase 1 are for the collector to execute within the bounded request. The collector does not write report findings or assessments.
+
+### Evidence ownership and optional specialists
+
+The `continuous-delivery-strategist` owns discovery questions, scope, user consent, external access setup, all seven cross-domain dimension assessments, L0-L4 and severity scoring, prioritization, synthesis, and report writing. It does not collect source evidence. For fresh discovery, it defines a bounded, read-only request and launches `cd-evidence-collector`, which alone scans requested repository paths and performs authorized GitHub/Octopus collection, maintaining `<target-repo>/cd-discovery/evidence.md` as the canonical evidence interface. Before using the document, the strategist validates collection state/readiness, source coverage and dispositions, scope, citations/limitations, and secret-safety. Read `EVIDENCE-LEDGER.md` for source-observation and analyst-record contracts. The strategist may selectively launch analysts after this validation; they consume only bounded sections and source IDs from `evidence.md`, not source systems.
+
+- **CI/artifact (`ci-artifact-integrity`):** relevant collected evidence in §1.1 CI configuration, §1.4 build/package, §1.9 testing and CI gates, and §1.13 artifact identity through the producer-to-release handoff. The collector performs the source scan; the analyst reviews only the bounded evidence section/source IDs selected by the strategist. CI owns producer-side artifact identity and the handoff reference.
+- **Release/deployment (`release-safety-recovery`):** post-handoff collected evidence in deployment strategy (§1.2), deployment scripts (§1.6), feature flags only when used as release controls (§1.8), release management (§1.10), and external orchestrator/deployment controls (§1.11, including relevant Octopus evidence). The analyst reviews only the selected evidence section/source IDs. Release owns controls after artifact handoff and references the CI-owned handoff record rather than duplicating it.
+- **Observed metrics (`delivery-metrics-flow`):** only actual, time-bounded outcome/flow evidence, including relevant observed workflow or PR records from §1.12 when the window and population are explicit, or an explicit user request with defensible scope. The collector performs any required GitHub/Octopus/source queries once and records sanitized observations; the strategist passes the relevant bounded evidence and IDs to the analyst. Configuration alone is not metric evidence.
+
+These mappings identify analyst boundaries, not ownership of whole scan categories or report dimensions. The collector owns source scanning/collection and writes neutral, cited `SRC-` observations; it does not assess or recommend. The strategist retains cross-domain interpretation and synthesis, including IaC, general observability, security, GitHub posture, and any evidence that spans boundaries. Analysts return validated ledger records only; they do not interview, collect/query sources, assess or score, prioritize, recommend, or write reports. The strategist validates required fields, scope/status/confidence/source/limitations, stable prefixes, duplicates, and conflicts, then appends accepted records in `## Analyst findings` within `evidence.md` and retains their IDs in findings.
 
 ### 1.1 Detect CI Platform
 
@@ -190,13 +200,13 @@ argocd app sync
 harness/connect, harness-cli
 ```
 
-If the orchestrator is **Octopus Deploy**, treat it as a first-class discovery target and run the dedicated sub-playbook at `~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md`. The launcher (`SKILL.md`) decides which tier to run (API / CaC / Questionnaire) based on whether `--octopus-url` and `--octopus-api-key` (or their env vars) are set. The sub-playbook produces a **Deployment Orchestrator** section in the report and feeds revisions back into the main capability matrix — particularly Deployment Automation, Release Process, and Observability levels.
+If the orchestrator is **Octopus Deploy**, treat it as a first-class evidence source and have the collector follow `~/.claude/skills/cd-discovery/OCTOPUS-DISCOVERY.md` within the consented scope and resolved tier. The strategist/launcher resolves user consent, scope, and access before collection. The collector records neutral source observations in `evidence.md`; the strategist interprets them in the relevant dimensions and cross-domain capability assessments — particularly Deployment Automation, Release Process, and Observability. Do not create a standalone "Deployment Orchestrator" report section.
 
 For other orchestrators, capture artifact handoff (which CI step publishes which package/manifest to which orchestrator), tag the gap as `[NEEDS CLARIFICATION: orchestrator outside repo]`, and surface it as a question in Phase 3.
 
 ### 1.12 GitHub Repository Posture
 
-If the repository has a `github.com` git remote, treat GitHub as a first-class discovery target and run the dedicated sub-playbook at `~/.claude/skills/cd-discovery/GH-DISCOVERY.md`. The launcher (`SKILL.md`) decides whether to run based on `gh auth status` and the `--skip-github` flag.
+If the repository has a `github.com` git remote, treat GitHub as a first-class evidence source and have the collector follow `~/.claude/skills/cd-discovery/GH-DISCOVERY.md` within the consented scope and resolved tier. The launcher/strategist resolves whether to run based on `gh auth status` and `--skip-github`; pass scope and approved access context to the collector, not analysts.
 
 The sub-playbook covers what is **not visible from the codebase scan alone**:
 - Branch protection state (required status checks, required reviewers, code-owner enforcement, admin bypass)
@@ -207,7 +217,7 @@ The sub-playbook covers what is **not visible from the codebase scan alone**:
 - Default `GITHUB_TOKEN` workflow permissions
 - CODEOWNERS presence
 
-The sub-playbook produces a **GitHub Repository Posture** section in the report and feeds revisions back into the main capability matrix — particularly Build & CI, Testing, Security, and Release Process.
+The collector records neutral source observations in `evidence.md`. The strategist interprets them in relevant dimension findings and cross-domain capability assessments — particularly Build & CI, Testing, Security, and Release Process. Do not create a standalone "GitHub Repository Posture" report section.
 
 **Framing rule** (must propagate into both the report and the agent's reasoning): *missing branch protection on a default branch is only a finding when feedback loops are weak elsewhere.* Trunk-based development legitimately commits directly to main. Before downgrading Build & CI on branch-protection state, survey Observability, Testing, and Deployment Automation; severity emerges from the combination, not from the bare branch-protection state.
 
@@ -377,32 +387,33 @@ Revision of level estimates and confidence scores based on user answers happens 
 
 ### Output: cd-discovery/ directory
 
-Write three (or two) files under a `cd-discovery/` directory at the project root, following these templates:
+Write three files under `cd-discovery/` for every fresh discovery, plus `suggestions.md` when `--suggest` is in scope. The collector writes `evidence.md` before the strategist writes the two report files:
 
 | File | Template | When written |
 |---|---|---|
+| `cd-discovery/evidence.md` | `EVIDENCE-LEDGER.md` canonical structure | Always for fresh discovery; created/maintained by `cd-evidence-collector` before reports |
 | `cd-discovery/summary.md` | `~/.claude/skills/cd-discovery/TEMPLATE-summary.md` | Always |
 | `cd-discovery/findings.md` | `~/.claude/skills/cd-discovery/TEMPLATE-findings.md` | Always |
 | `cd-discovery/suggestions.md` | `~/.claude/skills/cd-discovery/TEMPLATE-suggestions.md` | Only when `--suggest` is in scope |
 
-Each file is standalone-readable with a short date + repo header and its own bottom-of-file revision log. Cross-link `summary.md ↔ findings.md ↔ suggestions.md` with relative links per the templates.
+Each report file is standalone-readable with a short date + repo header and its own bottom-of-file revision log. Keep `evidence.md` as the canonical collection/analyst interface and preserve its run history. Cross-link `summary.md ↔ findings.md ↔ suggestions.md` with relative links per the templates.
 
 ### Sub-playbook integration (GH, Octopus)
 
-When `GH-DISCOVERY.md` or `OCTOPUS-DISCOVERY.md` run, they emit a **weave map** — a structured list of evidence items tagged with the target dimension(s) in `findings.md`. Do **not** preserve a separate "GitHub Repository Posture" or "Deployment Orchestrator" section in the output. Instead:
+When `GH-DISCOVERY.md` or `OCTOPUS-DISCOVERY.md` run, the collector records source observations in `evidence.md`; these are not assessment weave maps. Do **not** preserve a separate "GitHub Repository Posture" or "Deployment Orchestrator" section in the output. Instead:
 
-1. Read the weave map output from the sub-playbook.
-2. For each weave-map line, place the evidence in the matching dimension section of `findings.md` under "Artifacts Found" (or "Gaps Identified" if it's a missing-feature finding).
-3. Preserve the evidence-source tag (`[evidence: gh CLI Tier 1, scanned 2026-05-26]`) inline with the item so readers can audit confidence.
-4. Items tagged `[strength-to-protect]` go to `summary.md` under Strengths to Protect rather than into a dimension's gap list. Reference the source file and reason.
+1. Review the applicable bounded `SRC-` observations in `evidence.md` after validating collection coverage and scope.
+2. Interpret each relevant source observation and place the assessment in the matching dimension section of `findings.md` under "Artifacts Found" (or "Gaps Identified" if it's a missing-feature finding).
+3. Preserve the `SRC-` ID and narrow source citation inline with the item so readers can audit attribution and limitations.
+4. Evidence that establishes a strength goes to `summary.md` under Strengths to Protect rather than into a dimension's gap list. Reference the source ID/locator and reason.
 
 ### Framing rule for branch protection (applies at dimension level)
 
-When the GH weave map surfaces missing branch protection or missing required status checks on a default branch, do **not** classify it HIGH-severity in isolation. The finding sits in `findings.md` under the relevant dimension; weight severity by the team's overall feedback-loop quality (Observability, Testing, Deployment Automation). Document the reasoning inline with the evidence so the reader can audit the call.
+When GitHub source observations show missing branch protection or required status checks on a default branch, do **not** classify it HIGH-severity in isolation. The finding sits in `findings.md` under the relevant dimension; weight severity by the team's overall feedback-loop quality (Observability, Testing, Deployment Automation). Document the reasoning inline with the cited evidence so the reader can audit the call.
 
 ### Framing rule for artifact-centricity
 
-Build-once-promote-the-same-artifact is the load-bearing CD principle. When the Octopus weave map (or `PLAYBOOK.md` §1.13 if you find it directly) confirms it, the finding belongs in `summary.md` under Strengths to Protect with file:line / step-reference evidence — not buried as an absent gap in `findings.md`. Tell the reader what would silently regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, surface it as a HIGH-severity Deployment finding in `findings.md` regardless of how green the rest of the pipeline looks.
+Build-once-promote-the-same-artifact is the load-bearing CD principle. When collected evidence confirms it, the strategist's assessment belongs in `summary.md` under Strengths to Protect with file:line / step-reference evidence — not buried as an absent gap in `findings.md`. Tell the reader what would silently regress it (per-env tag parameterization, retag-at-deploy, separate per-env build jobs). When the codebase rebuilds per environment, lets a mutable tag reach prod, or retags at deploy, surface it as a HIGH-severity Deployment finding in `findings.md` regardless of how green the rest of the pipeline looks.
 
 ### Output Rules
 
@@ -425,14 +436,14 @@ Reviewers check claims against the repo and platform docs; overclaims cost more 
 ## Quality Gate
 
 Before considering discovery complete, verify:
-- All 13 scan categories executed against the codebase (1.1–1.13)
+- `cd-discovery/evidence.md` exists before summary/findings are written; for fresh discovery, all 13 requested scan categories were collected or have an explicit justified disposition (1.1–1.13)
 - If an external deployment orchestrator was detected, the relevant sub-playbook ran (e.g. `OCTOPUS-DISCOVERY.md`) OR the gap is explicitly tagged
 - If the repo has a GitHub remote, the GitHub sub-playbook ran (`GH-DISCOVERY.md`) OR was explicitly skipped via `--skip-github`
 - Findings mapped to 7 dimensions with L0-L4 level estimates
 - Anti-patterns detected and flagged with file:line references
 - Every gap tagged `[NEEDS CLARIFICATION: <specific question>]`
 - `cd-discovery/summary.md` and `cd-discovery/findings.md` written to project root with populated capability matrix and per-dimension sections
-- Sub-playbook evidence (GitHub and Octopus) woven into the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
+- Collector evidence, including GitHub and Octopus source observations when in scope, is represented in `evidence.md` and assessed in the relevant dimensions of `cd-discovery/findings.md` (no separate "Deployment Orchestrator" or "GitHub Repository Posture" sections)
 - `cd-discovery/suggestions.md` written when `--suggest` is in scope
 - **Branch-protection framing rule applied** (dimension level): findings interpreted in the context of overall feedback-loop quality, not treated as findings in isolation
 - **Artifact-centricity framing rule applied**: when build-once-promote-the-same-artifact is in place, it is named explicitly as a Strength to Protect in `summary.md` with file:line evidence; when violated, it is surfaced as a HIGH-severity Deployment Automation finding in `findings.md` regardless of how green the rest of the pipeline looks

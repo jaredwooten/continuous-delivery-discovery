@@ -2,19 +2,21 @@
 
 A [Claude Code](https://claude.com/claude-code) skill + agent bundle that performs **automated CI/CD pipeline discovery** on any repository. Produces structured capability assessments scored against the L0–L4 maturity model across seven dimensions (Build & CI, Testing, Deployment Automation, Release Process, Environments & Infra, Observability, Progressive Delivery).
 
-The skill is a thin launcher; the heavy lifting is done by the bundled `continuous-delivery-strategist` agent, which reads playbooks for the main codebase scan plus optional sub-scans for **GitHub** (branch protection, security alerts, workflow execution reality, PR cadence) and **Octopus Deploy** (REST API → Config-as-Code → questionnaire fallback tiers).
+The skill is a thin launcher for a five-agent workflow. The `continuous-delivery-strategist` owns scope, consent, the user interview, assessment, and report synthesis. It delegates bounded, read-only source collection to `cd-evidence-collector`, which maintains the canonical `<target-repo>/cd-discovery/evidence.md`. The strategist then routes relevant, sanitized evidence to three specialists: `ci-artifact-integrity` (CI gates and artifact handoff), `release-safety-recovery` (release controls and recovery), and `delivery-metrics-flow` (observed delivery outcomes). Specialists analyze only their assigned evidence and return finding records; they do not collect sources, repeat queries, assign final maturity or severity, or write reports. The strategist validates and reconciles their findings.
 
 ## What you get
 
 - `skills/cd-discovery/` — installs to `~/.claude/skills/cd-discovery/` and exposes `/cd-discovery` as a slash command
-- `agents/continuous-delivery-strategist.md` — installs to `~/.claude/agents/` and is spawned by the skill
+- `agents/continuous-delivery-strategist.md` — installs to `~/.claude/agents/` and remains the primary agent spawned by the skill
+- `agents/cd-evidence-collector.md` — installs alongside the strategist and owns the canonical source evidence document
+- `agents/ci-artifact-integrity.md`, `agents/release-safety-recovery.md`, and `agents/delivery-metrics-flow.md` — evidence-only analysis agents installed alongside the strategist
 - An assessment-grade output report (not just a scan dump) — every finding is mapped to a capability level with confidence calls and named anti-patterns
 
 ## Prerequisites
 
 - [Claude Code](https://claude.com/claude-code) installed and authenticated
 - Optional but recommended: `gh` CLI authenticated (`gh auth login`) — enables the GitHub sub-playbook when the target repo has a `github.com` remote
-- Optional: Octopus Deploy API key (`API-...`) — enables Tier 1 Octopus discovery against your Octopus server
+- Optional: Octopus URL and API key through approved runtime secret injection — enables Tier 1; never pass the key as a CLI argument
 
 ## Install (agent-driven)
 
@@ -70,7 +72,7 @@ Once installed, run from any project in Claude Code:
 | `/cd-discovery --suggest` | Discovery + suggestions.md (gaps + tradeoffs + dependency map; a resource, not a plan) |
 | `/cd-discovery --update` | Refresh an existing report with new context — verifies what's verifiable, preserves the audit trail |
 | `/cd-discovery --skip-github` | Skip the GitHub sub-playbook even if the repo is on GitHub |
-| `/cd-discovery --octopus-url <u> --octopus-api-key <k>` | Force Tier 1 Octopus discovery against a specific server |
+| `/cd-discovery --octopus-url <u>` | Scope Octopus Tier 1 discovery; provide `OCTOPUS_API_KEY` through approved environment/runtime secret injection, never as a flag |
 
 The full flag set is in `skills/cd-discovery/SKILL.md` frontmatter.
 
@@ -80,11 +82,11 @@ If you run `/cd-discovery` first and decide later that you want suggestions, run
 
 ## What gets scanned
 
-**Codebase (12 categories):** CI workflow files, containers, IaC, build configs, environment configs, deploy scripts, observability config, feature flags, testing layout, release process artifacts, external orchestrator handoff, and GitHub repository posture.
+**Codebase:** CI workflow files, containers, IaC, build configs, environment configs, deploy scripts, observability config, feature flags, testing layout, release process artifacts, external orchestrator handoff, and GitHub repository posture.
 
-**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution success rates, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence.
+**GitHub (when applicable):** branch protection state, required status checks, GitHub Advanced Security features (secret scanning + push protection, CodeQL default setup, Dependabot), open security alert counts, workflow execution outcomes, dormant workflows, PR cadence + base-branch distribution, default `GITHUB_TOKEN` permissions, CODEOWNERS presence, and workflow artifact supply-chain signals. The collector gathers each authorized source once; eligible sanitized evidence may be routed to a specialist without duplicating queries. Security alert findings may be synthesized directly by the strategist from the evidence.
 
-**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, recent deployment outcomes — via REST API (Tier 1), Config-as-Code (Tier 2), or questionnaire (Tier 3).
+**Octopus Deploy (when applicable):** projects, lifecycles, channels, deployment process steps, runbooks, manual intervention gates, and deployment/task history — via REST API (Tier 1), Config-as-Code (Tier 2), or user-reported evidence (Tier 3). The collector gathers authorized sources once and may route sanitized release-path or actual-outcome evidence to the corresponding specialist.
 
 ## Output
 
@@ -92,9 +94,10 @@ The skill produces a `cd-discovery/` directory at the project root:
 
 - `cd-discovery/summary.md` — executive summary, capability matrix (L0–L4 across seven dimensions), Strengths to Protect, anti-patterns, top three quick wins.
 - `cd-discovery/findings.md` — per-dimension deep dive. GitHub and Octopus evidence (when those sub-playbooks run) weaves into the relevant dimensions inline — there are no dedicated GitHub or Octopus sections.
+- `cd-discovery/evidence.md` — canonical source inventory and dated, provenance-bearing `SRC-` observations; the strategist appends validated specialist finding records here under `Analyst findings`.
 - `cd-discovery/suggestions.md` — only when `--suggest` has run. See description above.
 
-Each file is standalone-readable and maintains its own bottom-of-file revision log when you run `/cd-discovery --update`.
+Each report file is standalone-readable and maintains its own append-only revision log. `evidence.md` retains dated collection runs; replaced records get `Freshness: STALE` or `SUPERSEDED` and a replacement `SRC-` ID, never deletion.
 
 ### Migrating from the previous single-file output
 

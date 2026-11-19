@@ -9,6 +9,11 @@
 - Three evidence-analysis agents → `~/.claude/agents/ci-artifact-integrity.md`, `~/.claude/agents/delivery-metrics-flow.md`, and `~/.claude/agents/release-safety-recovery.md`
 - An agent-memory directory → `~/.claude/agent-memory/continuous-delivery-strategist/` (created empty on fresh install; preserved as-is on update)
 
+This install playbook installs the **Claude Code** bundle only. The repository
+also contains project-scoped OpenCode configuration in `opencode.json` and
+`.opencode/agents/`; it needs no copying into `~/.claude/`. For OpenCode usage
+and validation, see the “OpenCode integration” section in `README.md`.
+
 Only the strategist uses persistent agent memory. The evidence collector and three evidence-analysis agents have no persistent-memory directories.
 
 **Install methods (two options):**

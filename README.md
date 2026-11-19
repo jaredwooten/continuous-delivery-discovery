@@ -18,6 +18,48 @@ The skill is a thin launcher for a five-agent workflow. The `continuous-delivery
 - Optional but recommended: `gh` CLI authenticated (`gh auth login`) — enables the GitHub sub-playbook when the target repo has a `github.com` remote
 - Optional: Octopus URL and API key through approved runtime secret injection — enables Tier 1; never pass the key as a CLI argument
 
+## OpenCode integration
+
+The repository also includes project-scoped OpenCode definitions for the
+strategist and evidence collector in `.opencode/agents/`, plus `opencode.json`
+to allow the required strategist → collector nesting. These project definitions
+use provider-qualified model IDs and take precedence over a global agent with
+the same name. The user's provider must expose those models in OpenCode; confirm
+with `/models` before launching. This configuration is loaded only when this
+checkout is the active OpenCode project; it does not install agents globally.
+
+From this repository, start OpenCode and select `continuous-delivery-strategist`
+as the agent, or run:
+
+```bash
+opencode run --agent continuous-delivery-strategist \
+  "Perform CI/CD discovery for this repository."
+```
+
+Run OpenCode from this checkout when using these project-scoped definitions.
+The collector can write only `cd-discovery/evidence.md` under the active
+project; for collection against a different repository, OpenCode must be run
+with that target as the active project and the agents/config made available
+there. The bundled `/cd-discovery` slash command remains a Claude Code skill
+and is not automatically available in OpenCode. OpenCode discovery uses the same
+ownership boundary: the strategist must delegate source collection to
+`cd-evidence-collector` and stop clearly if the collector is unavailable. The
+OpenCode integration does not register the three optional analyst agents.
+
+Validate the project-scoped integration without making model requests:
+
+```bash
+python3 scripts/validate-opencode-agents.py
+opencode agent list
+opencode debug agent continuous-delivery-strategist
+opencode debug agent cd-evidence-collector
+```
+
+The validation script checks config nesting depth, registered model selectors,
+and the collector-only evidence-collection boundary. The OpenCode agent
+definitions/config are loaded at startup; restart an existing OpenCode process
+after changing them.
+
 ## Install (agent-driven)
 
 ```bash
